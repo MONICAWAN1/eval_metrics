@@ -4,6 +4,10 @@ Moran's I measures whether a feature is spatially *clustered* (nearby cells have
 values): ~+1 clustered, ~0 random, <0 dispersed. ``morans_i`` is the framework-free kernel (one
 I per feature column); ``morans_compare`` scores a generated slide against the real slide by
 comparing the two per-PC I vectors, variance-weighted by the real per-PC variance.
+
+Because the model generates *every* cell of each niche (not just centroids), Moran's I is
+computed over **all** generated cells pooled into one cloud, compared against the full real
+target slide — no density-matched grid subsample is involved.
 """
 
 from __future__ import annotations
@@ -51,32 +55,32 @@ def _dedupe(pos: np.ndarray, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def morans_compare(
     gen_x: np.ndarray,
     gen_pos: np.ndarray,
-    real_grid_x: np.ndarray,
-    real_grid_pos: np.ndarray,
+    real_x: np.ndarray,
+    real_pos: np.ndarray,
     *,
     prefix: str = "",
     n_neighs: int = 6,
     weight: str = "variance",
     seed: int = 0,
 ) -> dict[str, float]:
-    """Compare per-PC Moran's I of the generated centroids vs the density-matched real grid.
+    """Compare per-PC Moran's I of all generated cells vs the full real target slide.
 
-    ``gen_*`` are the generated niche centroids (point 0 of each niche). ``real_grid_*`` are the
-    matched real grid subsample (so the spatial graphs are resolution-comparable). PCs are
-    weighted by the real per-PC variance (``"variance"``; also ``"uniform"`` / ``"sqrt"``).
+    ``gen_*`` are all generated cells pooled into one cloud (every cell of every niche, not just
+    centroids). ``real_*`` are the real target slide's cells. PCs are weighted by the real per-PC
+    variance (``"variance"``; also ``"uniform"`` / ``"sqrt"``).
     """
     p = f"{prefix}/" if prefix else ""
     gen_pos, gen_x = _dedupe(np.asarray(gen_pos), np.asarray(gen_x))
-    real_grid_x = np.asarray(real_grid_x)
-    real_grid_pos = np.asarray(real_grid_pos)
+    real_x = np.asarray(real_x)
+    real_pos = np.asarray(real_pos)
 
     i_gen = morans_i(gen_x, gen_pos, n_neighs=n_neighs, seed=seed)
-    i_real = morans_i(real_grid_x, real_grid_pos, n_neighs=n_neighs, seed=seed)
+    i_real = morans_i(real_x, real_pos, n_neighs=n_neighs, seed=seed)
 
     if weight == "uniform":
-        w = np.ones(real_grid_x.shape[1])
+        w = np.ones(real_x.shape[1])
     else:
-        var = real_grid_x.var(axis=0)
+        var = real_x.var(axis=0)
         w = np.sqrt(var) if weight == "sqrt" else var
     wn = w / w.sum()
 

@@ -17,7 +17,8 @@ dependencies = [
     "torch>=2.2",             # MMD/EMD kernels + classifier forward
     "pot>=0.9.4",             # `ot` — exact-EMD / Wasserstein
     "squidpy>=1.4",           # Moran's I spatial autocorrelation
-    "anndata>=0.10",          # ephemeral AnnData for Moran's I
+    "anndata>=0.10",          # raw .h5ad inputs + ephemeral AnnData for Moran's I
+    "scanpy>=1.10",           # PCA (normalize_total/log1p/pca) in the niche preprocessing
     "pandas>=2.0",            # results aggregation / tables
     # --- classifier training (in scope: full train pipeline, not just a ckpt) ---
     "lightning>=2.2",
@@ -34,6 +35,11 @@ dependencies = [
 
 [project.optional-dependencies]
 wandb = ["wandb>=0.16"]
+# The full checkpoint -> generation pipeline (`nicheflow_eval.pipeline`) imports the NicheFlow
+# flow model as a blackbox. NicheFlow is not on PyPI; install it from the sibling repo, e.g.:
+#   pip install -e ../nicheflow_mba
+# (kept out of the dependency list so the standalone metric path installs without it).
+pipeline = []
 
 [dependency-groups]
 dev = [

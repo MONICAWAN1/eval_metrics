@@ -1,14 +1,17 @@
 """The input contract for evaluation: a real ``TargetSlide`` and the model's ``GeneratedNiches``.
 
-The metrics take the real target slide and the generated cells — both as
-plain arrays. 
+The metrics take the real target slide and the generated cells — both as plain arrays. The
+user-facing inputs are **original AnnData (``.h5ad``) files** (raw gene expression + spatial
+coordinates); build the dataclasses with :meth:`TargetSlide.from_anndata` /
+:meth:`GeneratedNiches.from_anndata`.
 
 Conventions
 -----------
-* Expression lives in the shared PCA space (``X_pca``) the generated cells were produced in.
+* Expression and generated cells must share one feature space. The simplest way to guarantee
+  this is to keep both as raw genes (same gene panel), or to fit one PCA on the target
+  (``TargetSlide.from_anndata(..., n_pcs=50)``) and project the generated cells through it with
+  :meth:`GeneratedNiches.project`.
 * A niche = a centroid cell (point index 0) + its ``N - 1`` neighbours.
-* Both sides must use the same PCA basis — guaranteed when ``TargetSlide`` is built from the
-  same preprocessing ``.pkl`` whose ``X_pca`` the model was trained/generated on.
 """
 
 from __future__ import annotations
@@ -17,42 +20,93 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from nicheflow_eval.data.anndata import (
+    cell_type_labels,
+    fit_pca,
+    read_anndata,
+    slide_coords,
+    slide_expression,
+)
+
 
 @dataclass
 class TargetSlide:
-    """A real target slide: every cell's expression + coordinates, plus optional labels/grid.
+    """A real target slide: every cell's expression + coordinates, plus optional labels.
 
     Attributes:
-        x: ``(N_cells, n_pcs)`` PCA expression of all real cells.
+        x: ``(N_cells, n_features)`` expression of all real cells (raw genes, or PCA if ``n_pcs``
+            was requested when loading).
         pos: ``(N_cells, coord)`` spatial coordinates.
-        ct: ``(N_cells,)`` integer cell-type labels (kept for reference/diagnostics; the
-            concordance metric now uses a neutral classifier on paired niches, not these labels).
-        grid_x / grid_pos: density-matched grid subsample used by Moran's I; if absent, the full
-            cloud is used.
+        ct: ``(N_cells,)`` integer cell-type labels (optional; used by the classifier metrics).
         n_classes: number of cell types (for proportion histograms).
+        pca: the frozen PCA fit on this slide when ``n_pcs`` was given, else ``None``. Apply it to
+            generated cells via :meth:`GeneratedNiches.project` so both sides share a basis.
     """
 
     x: np.ndarray
     pos: np.ndarray
     ct: np.ndarray | None = None
-    grid_x: np.ndarray | None = None
-    grid_pos: np.ndarray | None = None
     n_classes: int | None = None
+    pca: object | None = None
 
     @property
     def moran_grid(self) -> tuple[np.ndarray, np.ndarray]:
-        """The (x, pos) used for the Moran's I real reference — the grid subsample if present."""
-        if self.grid_x is not None and self.grid_pos is not None:
-            return self.grid_x, self.grid_pos
+        """The (x, pos) used as the Moran's I real reference — the full target cloud.
+
+        Moran's I now scores **all** generated cells against the full real slide, so there is no
+        density-matched grid subsample any more; this returns the whole cloud.
+        """
         return self.x, self.pos
 
     @classmethod
-    def from_dataclass(cls, ds, timepoint: str, n_pcs: int | None = None) -> "TargetSlide":
-        """Build a ``TargetSlide`` from a preprocessing ``H5ADDatasetDataclass`` and a timepoint.
+    def from_anndata(
+        cls,
+        adata_or_path,
+        *,
+        timepoint: str | None = None,
+        expr_key: str | None = None,
+        spatial_key: str = "spatial",
+        ct_key: str | None = None,
+        timepoint_key: str | None = None,
+        n_pcs: int | None = None,
+    ) -> TargetSlide:
+        """Build a ``TargetSlide`` from an original AnnData slide (raw genes + coordinates).
 
-        Pass the target slide's own ``.pkl`` (e.g. ``target_abca.pkl``). Slices the given timepoint's 
-        cells, maps cell-type labels to ints via ``ds.ct_to_int``, and extracts the precomputed 
-        grid subsample (``subsampled_timepoint_idx``) as the Moran's I reference.
+        Args:
+            adata_or_path: an ``AnnData`` or a path to a ``.h5ad`` file.
+            timepoint: if the file holds several slides (``timepoint_key`` set), keep only this one.
+            expr_key: where expression lives — ``None`` -> ``adata.X`` (raw genes); otherwise an
+                ``obsm``/``layers`` key (e.g. ``"X_pca"`` if you already reduced).
+            spatial_key: ``obsm`` key for coordinates (default ``"spatial"``).
+            ct_key: ``obs`` column with cell types (optional).
+            timepoint_key: ``obs`` column identifying the slide (optional).
+            n_pcs: if set, fit a PCA on this slide and project its expression into ``n_pcs`` dims;
+                the fit is stored on ``.pca`` so generated cells can be projected identically.
+        """
+        adata = read_anndata(adata_or_path)
+        if timepoint is not None and timepoint_key is not None:
+            mask = np.asarray(adata.obs[timepoint_key]).astype(str) == str(timepoint)
+            adata = adata[mask]
+
+        x = slide_expression(adata, expr_key)
+        pos = slide_coords(adata, spatial_key)
+        ct, ct_to_int = cell_type_labels(adata, ct_key)
+        n_classes = len(ct_to_int) if ct_to_int is not None else None
+
+        pca = None
+        if n_pcs is not None and (expr_key is None or x.shape[1] > n_pcs):
+            pca = fit_pca(x, n_pcs)
+            x = pca.transform(x)
+
+        return cls(x=x, pos=pos, ct=ct, n_classes=n_classes, pca=pca)
+
+    @classmethod
+    def from_dataclass(cls, ds, timepoint: str, n_pcs: int | None = None) -> TargetSlide:
+        """Build a ``TargetSlide`` from a preprocessed ``H5ADDatasetDataclass`` and a timepoint.
+
+        Used by the full pipeline: the generated cells live in this dataclass's **standardized
+        ``X_pca``** space, so the target must come from the same dataclass (not raw genes) for the
+        spaces to match. Slices the timepoint's cells and maps cell-type labels to ints.
         """
         cells = np.asarray(ds.timepoint_indices[timepoint])
         x = np.asarray(ds.X_pca[cells])
@@ -67,12 +121,7 @@ class TargetSlide:
             ct = np.array([ds.ct_to_int[c] for c in ct_raw], dtype=np.int64)
         n_classes = len(ds.ct_to_int)
 
-        grid_x = grid_pos = None
-        if ds.subsampled_timepoint_idx and timepoint in ds.subsampled_timepoint_idx:
-            grid_idx = np.unique(np.asarray(ds.subsampled_timepoint_idx[timepoint]))
-            grid_x, grid_pos = x[grid_idx], pos[grid_idx]
-
-        return cls(x=x, pos=pos, ct=ct, grid_x=grid_x, grid_pos=grid_pos, n_classes=n_classes)
+        return cls(x=x, pos=pos, ct=ct, n_classes=n_classes, pca=None)
 
 
 @dataclass
@@ -80,18 +129,20 @@ class GeneratedNiches:
     """Generated microenvironments: ``(B, N, D)`` with the centroid at point index 0.
 
     Attributes:
-        x: ``(B, N, n_pcs)`` generated expression.
+        x: ``(B, N, n_features)`` generated expression.
         pos: ``(B, N, coord)`` generated coordinates.
         gt_x / gt_pos: the matched ground-truth (paired real) target microenvironment per
             generated niche; supply these to enable the pointwise regression metrics
-            (``x/*``, ``pos/*``) and the cell-type concordance metric (``ct/*``), which scores the
-            generated niche against this paired real niche with a neutral classifier.
+            (``x/*``, ``pos/*``) and the cell-type classifier metrics (``ct/*``).
+        gt_ct: ``(B,)`` true cell-type label of each paired real centroid; enables the classifier
+            accuracy-gap metric (``ct/acc_real``, ``ct/acc_gen``, ``ct/acc_gap``).
     """
 
     x: np.ndarray
     pos: np.ndarray
     gt_x: np.ndarray | None = None
     gt_pos: np.ndarray | None = None
+    gt_ct: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         self.x = np.asarray(self.x)
@@ -103,7 +154,7 @@ class GeneratedNiches:
 
     @property
     def flat_x(self) -> np.ndarray:
-        """All generated cells pooled into one ``(B*N, n_pcs)`` cloud."""
+        """All generated cells pooled into one ``(B*N, n_features)`` cloud."""
         return self.x.reshape(-1, self.x.shape[-1])
 
     @property
@@ -113,7 +164,7 @@ class GeneratedNiches:
 
     @property
     def centroid_x(self) -> np.ndarray:
-        """Centroid expression of each niche, ``(B, n_pcs)`` (point 0)."""
+        """Centroid expression of each niche, ``(B, n_features)`` (point 0)."""
         return self.x[:, 0, :]
 
     @property
@@ -121,8 +172,82 @@ class GeneratedNiches:
         """Centroid coordinates of each niche, ``(B, coord)`` (point 0)."""
         return self.pos[:, 0, :]
 
+    def project(self, pca) -> GeneratedNiches:
+        """Project expression (and ``gt_x``) through a target ``pca`` into the shared basis.
+
+        No-op when ``pca`` is ``None`` (both sides already in the same raw-gene space). Returns a
+        new ``GeneratedNiches``; coordinates are untouched.
+        """
+        if pca is None:
+            return self
+
+        def _proj(arr):
+            if arr is None:
+                return None
+            b, n, _ = arr.shape
+            return pca.transform(arr.reshape(-1, arr.shape[-1])).reshape(b, n, -1)
+
+        return GeneratedNiches(
+            x=_proj(self.x), pos=self.pos, gt_x=_proj(self.gt_x), gt_pos=self.gt_pos,
+            gt_ct=self.gt_ct,
+        )
+
     @classmethod
-    def from_trajectory(cls, x_traj, pos_traj, **kwargs) -> "GeneratedNiches":
+    def from_anndata(
+        cls,
+        adata_or_path,
+        *,
+        niche_key: str = "niche_id",
+        expr_key: str | None = None,
+        spatial_key: str = "spatial",
+        gt_x_key: str | None = "gt_x",
+        gt_pos_key: str | None = "gt_pos",
+        gt_ct_key: str | None = "gt_ct",
+    ) -> GeneratedNiches:
+        """Build ``(B, N, D)`` niches from a flat generated AnnData (the pipeline's output).
+
+        The generated cells are stored flat (``B*N`` rows) with ``obs[niche_key]`` grouping the
+        ``N`` points of each niche (centroid first) and coordinates in ``obsm[spatial_key]``. The
+        paired ground-truth niches, if present, are carried in ``obsm[gt_x_key]`` /
+        ``obsm[gt_pos_key]`` with the same row order; the paired real centroid's true label in
+        ``obs[gt_ct_key]``.
+        """
+        adata = read_anndata(adata_or_path)
+        if niche_key not in adata.obs:
+            raise KeyError(
+                f"niche_key {niche_key!r} not in adata.obs (have: {list(adata.obs.columns)})."
+            )
+        niche = np.asarray(adata.obs[niche_key])
+        x = slide_expression(adata, expr_key)
+        pos = slide_coords(adata, spatial_key)
+
+        # Group rows by niche id, preserving within-niche order (centroid at index 0).
+        order = np.argsort(niche, kind="stable")
+        niche_sorted = niche[order]
+        _, counts = np.unique(niche_sorted, return_counts=True)
+        if len(set(counts.tolist())) != 1:
+            raise ValueError(
+                "Generated niches must all have the same number of points; "
+                f"got sizes {set(counts)}."
+            )
+        n = int(counts[0])
+        b = len(counts)
+
+        def _reshape(flat):
+            return flat[order].reshape(b, n, flat.shape[-1])
+
+        gt_x = gt_pos = gt_ct = None
+        if gt_x_key and gt_x_key in adata.obsm and gt_pos_key and gt_pos_key in adata.obsm:
+            gt_x = _reshape(np.asarray(adata.obsm[gt_x_key], dtype=np.float32))
+            gt_pos = _reshape(np.asarray(adata.obsm[gt_pos_key], dtype=np.float32))
+        if gt_ct_key and gt_ct_key in adata.obs:
+            # One label per niche: take the centroid (point 0) of each group.
+            gt_ct = np.asarray(adata.obs[gt_ct_key])[order].reshape(b, n)[:, 0].astype(np.int64)
+
+        return cls(x=_reshape(x), pos=_reshape(pos), gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct)
+
+    @classmethod
+    def from_trajectory(cls, x_traj, pos_traj, **kwargs) -> GeneratedNiches:
         """Build from a flow sampling trajectory: take the final step ``[-1]`` of each."""
         import numpy as _np
 

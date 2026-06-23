@@ -7,6 +7,7 @@ and a *wrapper* that scores generated-vs-real and returns a flat ``{group/metric
 """
 
 from nicheflow_eval.metrics.c2st import c2st, c2st_metrics, c2st_significance
+from nicheflow_eval.metrics.classifier_gap import classifier_accuracy_gap
 from nicheflow_eval.metrics.concordance import cell_type_concordance
 from nicheflow_eval.metrics.distances import (
     point_to_shape,
@@ -26,6 +27,7 @@ __all__ = [
     # wrappers
     "c2st_metrics",
     "cell_type_concordance",
+    "classifier_accuracy_gap",
     "distribution_distance",
     "morans_compare",
     "point_to_shape",

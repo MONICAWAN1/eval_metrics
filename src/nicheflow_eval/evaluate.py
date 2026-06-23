@@ -3,19 +3,34 @@
 ``evaluate`` returns a flat ``{prefix/group/metric: value}`` dict matching the columns the
 NicheFlow result CSVs use, so existing reporting code keeps working. Each metric group is
 optional and is skipped (with a note in the returned ``_skipped`` list) when its inputs are
-absent — e.g. concordance needs a classifier + labels, regression needs matched ground truth.
+absent — e.g. the classifier groups need a classifier + paired niches, regression needs matched
+ground truth.
+
+This is the **standalone** path: it takes a real ``TargetSlide`` and the model's
+``GeneratedNiches`` (both built from AnnData) and never touches the flow model. To go all the way
+from a checkpoint + raw slides, see :func:`nicheflow_eval.pipeline.run.run_pipeline`.
 """
 
 from __future__ import annotations
 
 from nicheflow_eval.contract import GeneratedNiches, TargetSlide
 from nicheflow_eval.metrics.c2st import c2st_metrics
+from nicheflow_eval.metrics.classifier_gap import classifier_accuracy_gap
 from nicheflow_eval.metrics.concordance import cell_type_concordance
 from nicheflow_eval.metrics.distances import point_to_shape, regression_metrics, shape_to_point
 from nicheflow_eval.metrics.distribution import distribution_distance
 from nicheflow_eval.metrics.morans import morans_compare
 
-ALL_GROUPS = ("regression", "psd", "spd", "distribution", "c2st", "moran", "concordance")
+ALL_GROUPS = (
+    "regression",
+    "psd",
+    "spd",
+    "distribution",
+    "c2st",
+    "moran",
+    "concordance",
+    "ct_gap",
+)
 
 
 def evaluate(
@@ -38,9 +53,11 @@ def evaluate(
     """Compute every applicable metric for ``generated`` vs. ``target`` and return a flat dict.
 
     Groups: ``regression`` (needs ``generated.gt_*``), ``psd``/``spd``, ``distribution`` (MMD/EMD),
-    ``c2st`` (per-cell joint + pos-only), ``moran`` (Moran's I), ``concordance`` (needs a neutral
-    ``classifier`` and the paired real niches ``generated.gt_*``). Pass a subset via ``groups`` to
-    run only some.
+    ``c2st`` (per-cell joint + pos-only), ``moran`` (Moran's I over **all** generated cells),
+    ``concordance`` (classifier agreement on generated vs paired-real niches) and ``ct_gap``
+    (classifier accuracy gap real-vs-generated). The two classifier groups need a ``classifier``
+    and the paired real niches ``generated.gt_*`` (``ct_gap`` also needs ``generated.gt_ct``).
+    Pass a subset via ``groups`` to run only some.
     """
     out: dict[str, float] = {}
     skipped: list[str] = []
@@ -91,13 +108,14 @@ def evaluate(
         )
 
     if "moran" in groups:
-        grid_x, grid_pos = target.moran_grid
+        # Moran's I over ALL generated cells (we generate them all) vs the full real slide.
+        real_x, real_pos = target.moran_grid
         out.update(
             morans_compare(
-                generated.centroid_x,
-                generated.centroid_pos,
-                grid_x,
-                grid_pos,
+                generated.flat_x,
+                generated.flat_pos,
+                real_x,
+                real_pos,
                 prefix=prefix,
                 n_neighs=moran_n_neighs,
                 seed=seed,
@@ -124,15 +142,50 @@ def evaluate(
                 "concordance (needs `classifier` and paired real niches `generated.gt_x/gt_pos`)"
             )
 
+    if "ct_gap" in groups:
+        if (
+            classifier is not None
+            and generated.gt_x is not None
+            and generated.gt_pos is not None
+            and generated.gt_ct is not None
+        ):
+            out.update(
+                classifier_accuracy_gap(
+                    generated.x,
+                    generated.pos,
+                    generated.gt_x,
+                    generated.gt_pos,
+                    generated.gt_ct,
+                    classifier,
+                    prefix=prefix,
+                    spatial=classifier_spatial,
+                    n_neighbors=classifier_n_neighbors,
+                )
+            )
+        else:
+            skipped.append(
+                "ct_gap (needs `classifier`, paired niches `generated.gt_x/gt_pos` and true "
+                "centroid labels `generated.gt_ct`)"
+            )
+
     out["_skipped"] = skipped
     return out
 
 
-def _build_classifier(ckpt_path: str, input_dim: int, output_dim: int, args):
+def build_spatial_classifier(
+    ckpt_path: str,
+    input_dim: int,
+    output_dim: int,
+    *,
+    hidden_dim: int = 64,
+    num_heads: int = 4,
+    coord_dim: int = 2,
+    mask_centroid: bool = True,
+):
     """Reconstruct the spatial SetTransformer classifier and load a checkpoint into it.
 
-    Net hyperparameters must match what was trained (mirrors the ``abca_spatial`` config defaults);
-    ``load_spatial_classifier`` attaches the training ``n_neighbors`` so concordance matches it.
+    Net hyperparameters must match what was trained; ``load_spatial_classifier`` attaches the
+    training ``n_neighbors`` so the classifier metrics build identically sized niches.
     """
     import torch
 
@@ -142,13 +195,24 @@ def _build_classifier(ckpt_path: str, input_dim: int, output_dim: int, args):
     clf = SpatialCTClassifierNet(
         input_dim=input_dim,
         output_dim=output_dim,
-        hidden_dim=args.hidden_dim,
-        coord_dim=args.coord_dim,
-        num_heads=args.num_heads,
-        mask_centroid=not args.no_mask_centroid,
+        hidden_dim=hidden_dim,
+        coord_dim=coord_dim,
+        num_heads=num_heads,
+        mask_centroid=mask_centroid,
     )
     load_spatial_classifier(clf, torch.load(ckpt_path, map_location="cpu"))
     return clf
+
+
+def _load_generated(path: str) -> GeneratedNiches:
+    """Load generated cells from an ``.npz`` (x/pos/gt_x/gt_pos/gt_ct) or a flat ``.h5ad``."""
+    if str(path).endswith(".h5ad"):
+        return GeneratedNiches.from_anndata(path)
+    import numpy as np
+
+    npz = np.load(path)
+    extra = {k: npz[k] for k in ("gt_x", "gt_pos", "gt_ct") if k in npz}
+    return GeneratedNiches(x=npz["x"], pos=npz["pos"], **extra)
 
 
 def _main() -> None:
@@ -156,32 +220,27 @@ def _main() -> None:
     import csv
     import os
 
-    import numpy as np
-
-    from nicheflow_eval.contract import GeneratedNiches, TargetSlide
-    from nicheflow_eval.data import load_h5ad_dataset_dataclass
-
     ap = argparse.ArgumentParser(
-        description="Run the nicheflow-eval metric suite on one (target slide, generated cells) pair."
+        description="Run the nicheflow-eval metric suite on a (target slide, generated cells) pair."
     )
-    ap.add_argument(
-        "--target",
-        required=True,
-        help="the target slide's own preprocessing .pkl (e.g. target_abca.pkl) — NOT the "
-        "concatenated source+target aligned pkl",
-    )
+    ap.add_argument("--target", required=True, help="the target slide .h5ad (raw genes + coords)")
     ap.add_argument(
         "--generated",
         required=True,
-        help="generated .npz with arrays x (B,N,P), pos (B,N,P); optional gt_x, gt_pos",
+        help="generated cells: .npz with arrays x (B,N,P), pos (B,N,P) [+ gt_x, gt_pos, gt_ct], "
+        "or a flat .h5ad produced by the pipeline",
     )
-    ap.add_argument("--classifier", default=None, help="optional classifier .ckpt (enables the concordance group)")
+    ap.add_argument(
+        "--classifier", default=None, help="optional classifier .ckpt (enables the ct/* groups)"
+    )
     ap.add_argument("--out", default=None, help="optional path to write a metric,value CSV")
     ap.add_argument(
-        "--timepoint",
-        default=None,
-        help="target slide id (default: the last in timepoints_ordered)",
+        "--expr_key", default=None, help="obsm/layers key for expression (default: adata.X)"
     )
+    ap.add_argument("--spatial_key", default="spatial", help="obsm key for coordinates")
+    ap.add_argument("--ct_key", default=None, help="obs column with cell types")
+    ap.add_argument("--timepoint_key", default=None, help="obs column identifying the slide")
+    ap.add_argument("--timepoint", default=None, help="slide id to keep (with --timepoint_key)")
     ap.add_argument(
         "--groups",
         nargs="+",
@@ -190,7 +249,9 @@ def _main() -> None:
         help=f"subset of metric groups to run (default: all -> {', '.join(ALL_GROUPS)})",
     )
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--n_pcs", type=int, default=None, help="truncate expression to the first n PCs")
+    ap.add_argument(
+        "--n_pcs", type=int, default=None, help="fit a PCA on the target to n PCs and project"
+    )
     # Spatial classifier net hyperparameters (must match training; only used with --classifier).
     ap.add_argument("--hidden_dim", type=int, default=64)
     ap.add_argument("--num_heads", type=int, default=4)
@@ -198,24 +259,35 @@ def _main() -> None:
     ap.add_argument("--no_mask_centroid", action="store_true", help="ablation: keep the centroid")
     args = ap.parse_args()
 
-    ds = load_h5ad_dataset_dataclass(args.target)
-    timepoint = args.timepoint or ds.timepoints_ordered[-1]
-    target = TargetSlide.from_dataclass(ds, timepoint=timepoint, n_pcs=args.n_pcs)
-
-    npz = np.load(args.generated)
-    extra = {k: npz[k] for k in ("gt_x", "gt_pos") if k in npz}
-    generated = GeneratedNiches(x=npz["x"], pos=npz["pos"], **extra)
+    target = TargetSlide.from_anndata(
+        args.target,
+        timepoint=args.timepoint,
+        expr_key=args.expr_key,
+        spatial_key=args.spatial_key,
+        ct_key=args.ct_key,
+        timepoint_key=args.timepoint_key,
+        n_pcs=args.n_pcs,
+    )
+    generated = _load_generated(args.generated).project(target.pca)
 
     classifier = None
     if args.classifier is not None:
-        classifier = _build_classifier(args.classifier, target.x.shape[1], target.n_classes, args)
+        classifier = build_spatial_classifier(
+            args.classifier,
+            target.x.shape[1],
+            target.n_classes,
+            hidden_dim=args.hidden_dim,
+            num_heads=args.num_heads,
+            coord_dim=args.coord_dim,
+            mask_centroid=not args.no_mask_centroid,
+        )
 
     groups = tuple(args.groups) if args.groups else ALL_GROUPS
     res = evaluate(target, generated, classifier=classifier, groups=groups, seed=args.seed)
 
     skipped = res.pop("_skipped")
     rows = sorted(res.items())
-    print(f"target '{timepoint}': {target.x.shape[0]} cells, {target.x.shape[1]} PCs")
+    print(f"target: {target.x.shape[0]} cells, {target.x.shape[1]} features")
     print(f"generated: {generated.x.shape[0]} niches x {generated.x.shape[1]} points")
     for k, v in rows:
         print(f"{k:24s} {v:.4f}")
@@ -231,6 +303,6 @@ def _main() -> None:
         print(f"\nsaved {args.out}")
 
 
-# Usage: python -m nicheflow_eval.evaluate --target target.pkl --generated generated.npz
+# Usage: python -m nicheflow_eval.evaluate --target target.h5ad --generated generated.npz
 if __name__ == "__main__":
     _main()

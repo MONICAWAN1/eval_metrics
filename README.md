@@ -1,9 +1,15 @@
 # nicheflow-eval
 
-Standalone evaluation metrics for spatial single-cell generative models (NicheFlow). Give it a
-**real target slide** and a set of **generated cells**, and it computes the full metric suite.
-It also bundles the **full cell-type-classifier training pipeline** used by the concordance
-metric (not just a frozen checkpoint).
+Standalone evaluation metrics for spatial single-cell generative models (NicheFlow). Inputs are
+**original AnnData (`.h5ad`) files** — raw gene expression + spatial coordinates. Two ways to use it:
+
+- **Standalone** — give it a real **target slide** and a set of **generated cells** (both AnnData),
+  and it computes the full metric suite.
+- **Full pipeline** — give it the **source** + **target** slides, a slide to **train the
+  classifier** on, and a trained flow **checkpoint**; it preprocesses the niches, generates the
+  target with the flow (importing NicheFlow as a blackbox), and evaluates — no manual preprocessing.
+
+It also bundles the **full cell-type-classifier training pipeline** used by the classifier metrics.
 
 ## Install
 
@@ -12,80 +18,99 @@ cd nicheflow-eval
 uv venv && uv pip install -e ".[wandb]"   # or: pip install -e .
 ```
 
-## The input contract
+The standalone metrics need only the deps above. The **full pipeline** additionally imports
+NicheFlow (not on PyPI); install it from the sibling repo:
 
-Everything reduces to two objects of plain arrays (no flow model, checkpoints, or Hydra needed):
+```bash
+pip install -e ../nicheflow_mba       # provides the `nicheflow` package used for generation
+```
 
-| Object | Fields | Notes |
+## Inputs: AnnData (`.h5ad`)
+
+No preprocessed pickle is required. Each slide is a plain AnnData with:
+
+| Field | Where | Notes |
 |---|---|---|
-| `TargetSlide` | `x (N,P)`, `pos (N,2)`, `ct (N,)`, `grid_x/grid_pos`, `n_classes` | the real slide; `ct` only for concordance |
-| `GeneratedNiches` | `x (B,N,P)`, `pos (B,N,P)`, optional `gt_x/gt_pos` | `(B, N, D)`, **centroid at point 0**; `gt_*` enables regression |
+| expression | `adata.X` | **raw genes** (default). Or an `obsm`/`layers` key via `expr_key=` if you already reduced. |
+| coordinates | `adata.obsm["spatial"]` | configurable via `spatial_key=` |
+| cell types | `adata.obs[ct_key]` | optional; needed by the classifier metrics |
 
-Both sides must live in the **same PCA space**, and the target slide is the **target slide on its
-own** — build `TargetSlide` from the dedicated `target_abca.pkl` (produced by preprocessing in the
-shared `X_pca` basis the model generated in). **Do not** use the concatenated source+target aligned
-pkl as the target:
+Generated cells are stored **flat** (one row per cell) with `obs["niche_id"]` grouping each niche's
+points (centroid first) and coords in `obsm["spatial"]`; paired ground-truth niches in
+`obsm["gt_x"]`/`obsm["gt_pos"]` and the paired real centroid's true label in `obs["gt_ct"]`.
+
+PCA is **not** assumed. Target and generated must share one feature space — either keep both as raw
+genes (same panel), or pass `n_pcs=` to fit one PCA on the target and project the generated cells
+through it:
 
 ```python
 from nicheflow_eval import TargetSlide, GeneratedNiches, evaluate
-from nicheflow_eval.data import load_h5ad_dataset_dataclass
 
-ds = load_h5ad_dataset_dataclass("data/target_abca.pkl")   # the TARGET slide only
-target = TargetSlide.from_dataclass(ds, timepoint=ds.timepoints_ordered[-1])
-generated = GeneratedNiches(x=gen_x, pos=gen_pos)   # or .from_trajectory(x_traj, pos_traj)
+target = TargetSlide.from_anndata("target.h5ad", ct_key="class")        # raw genes + coords
+generated = GeneratedNiches.from_anndata("generated.h5ad")              # (B, N, D), centroid first
+results = evaluate(target, generated)                                   # {test/group/metric: ...}
 
-results = evaluate(target, generated)               # {"test/mmd2/x": ..., "test/c2st/acc": ..., ...}
+# optional shared-PCA: fit on the target, project the generated cells into the same basis
+target = TargetSlide.from_anndata("target.h5ad", ct_key="class", n_pcs=50)
+generated = GeneratedNiches.from_anndata("generated.h5ad").project(target.pca)
 ```
 
-## Train the concordance classifier
+## Full pipeline (checkpoint → generated cells → metrics)
 
-Concordance uses a **neutral** classifier: trained on a **held-out same-mouse slide** (neither
-source nor target) — `data/abca_aligned_clf.pkl` — then applied to **both** the generated niche
-and its paired real target niche. The full Hydra/Lightning pipeline lives under
-`nicheflow_eval.classifier` (gene-only MLP + spatial DeepSet / SetTransformer / GCN variants);
-configs are in `configs/` and the data config points at `abca_aligned_clf.pkl`.
+```python
+from nicheflow_eval.pipeline import run_pipeline
 
-```bash
-python -m nicheflow_eval.classifier.train experiment=classifier/abca          # gene-only MLP
-python -m nicheflow_eval.classifier.train experiment=classifier/abca_spatial   # spatial SetTransformer
+res = run_pipeline(
+    "source.h5ad", "target.h5ad", "flow.ckpt",   # source/target slides + trained flow checkpoint
+    classifier_h5ad="classifier_slide.h5ad",      # held-out slide to train the neutral classifier
+    n_pcs=50,
+)
+print(res.metrics)                                # flat {test/group/metric: value} dict
 ```
 
-It reads `X_pca`, `coords`, `ct`, and the precomputed neighbour graph from that `.pkl`. See
-`docs/classifier_eval_summary.md`.
-
-## Run the evaluation (command line)
-
-`python -m nicheflow_eval.evaluate` runs the whole suite on one `(target, generated)` pair: a
-preprocessing `.pkl` for the target slide and an `.npz` of generated cells (arrays `x (B,N,P)`,
-`pos (B,N,P)`; optional `gt_x`/`gt_pos`). It prints a `metric value` table and, with `--out`,
-writes a CSV.
+Or from the command line:
 
 ```bash
-# geometry + distribution + C2ST (no trained classifier needed)
-python -m nicheflow_eval.evaluate \
-  --target PATH/TO/target.pkl \
-  --generated PATH/TO/generated.npz \
-  --out PATH/TO/results.csv
+python -m nicheflow_eval.pipeline \
+  --source SOURCE.h5ad --target TARGET.h5ad \
+  --checkpoint FLOW.ckpt \
+  --classifier CLASSIFIER_SLIDE.h5ad \
+  --generated_out generated.h5ad --out results.csv
+```
 
-# full suite incl. cell-type concordance (pass the trained classifier checkpoint)
+The pipeline preprocesses the source+target pair into the niche scaffolding (shared PCA on the
+concatenated pair, per-slide coordinate standardization, radius graph + grid subsample — the
+original NicheFlow preprocessing, ported here; **no global alignment / PASTE2**), generates the
+target with `flow.sample`, trains/loads the classifier, and evaluates. Generated cells live in the
+preprocessor's standardized `X_pca` space, and the target is read from the same space so the metrics
+are comparable.
+
+## Run the standalone evaluation (command line)
+
+`python -m nicheflow_eval.evaluate` runs the suite on one `(target slide, generated cells)` pair: a
+target `.h5ad` and the generated cells as `.npz` (arrays `x (B,N,P)`, `pos (B,N,P)`; optional
+`gt_x`/`gt_pos`/`gt_ct`) or a flat generated `.h5ad`.
+
+```bash
+# geometry + distribution + C2ST + Moran (no trained classifier needed)
+python -m nicheflow_eval.evaluate --target TARGET.h5ad --generated generated.npz --out results.csv
+
+# add the classifier groups (concordance + accuracy gap)
 python -m nicheflow_eval.evaluate \
-  --target PATH/TO/target.pkl \
-  --generated PATH/TO/generated.npz \
-  --classifier PATH/TO/Classifier_Spatial_ABCA_SetTransformer.ckpt \
-  --out PATH/TO/results.csv
+  --target TARGET.h5ad --generated generated.npz \
+  --classifier Classifier_Spatial.ckpt --out results.csv
 ```
 
 Groups whose inputs are missing are skipped automatically (no `gt_*` → skips regression; no
-`--classifier` → skips concordance) and reported in a `skipped:` line. Useful flags:
+`--classifier` → skips the `ct/*` groups) and reported in a `skipped:` line. Useful flags:
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--classifier` | none | classifier `.ckpt`; enables the concordance group. `n_neighbors` is read from the checkpoint so eval matches training |
+| `--classifier` | none | classifier `.ckpt`; enables the `ct/*` groups. `n_neighbors` is read from the checkpoint |
 | `--groups` | all | subset, e.g. `--groups c2st moran` |
-| `--timepoint` | last slide | which slide in the `.pkl` is the target |
-| `--n_pcs` | all | truncate expression to the first N PCs |
+| `--n_pcs` | none | fit a PCA on the target to N PCs and project the generated cells into it |
+| `--expr_key` / `--spatial_key` / `--ct_key` | `X`/`spatial`/none | where expression/coords/labels live |
 | `--seed` | `0` | |
-| `--hidden_dim` / `--num_heads` / `--coord_dim` / `--no_mask_centroid` | `64` / `4` / `2` / off | classifier net hyperparameters — **must match training** (only used with `--classifier`) |
 
 ## Metrics
 
@@ -95,23 +120,28 @@ Groups whose inputs are missing are skipped automatically (no `gt_*` → skips r
 | Point/shape distances | `psd/{mean,max}`, `spd/{mean,max}` | — |
 | Distribution | `mmd2/{x,pos}`, `ot_w1/{x,pos}`, `ot_w2/{x,pos}` | `torch`, `pot` |
 | C2ST (label-free) | `c2st/{acc,auc,pos_acc,sig_*}` | `sklearn` |
-| Moran's I (label-free) | `moran/{mae,corr,real_mean,gen_mean}` | `squidpy` |
-| Cell-type concordance | `ct/{f1,acc,prop_kl,prop_tv,prop_jsd}` | neutral classifier + paired real niches `gt_*` |
+| Moran's I (label-free) | `moran/{mae,corr,real_mean,gen_mean}` | `squidpy` — over **all** generated cells vs the full real slide |
+| Cell-type concordance | `ct/{f1,acc,prop_kl,prop_tv,prop_jsd}` | classifier + paired real niches `gt_*` |
+| Classifier accuracy gap | `ct/{acc_real,acc_gen,acc_gap}` | classifier + paired niches `gt_*` + true labels `gt_ct` |
 
-See `docs/metric_comparison.md` for what each metric means and example results, and
-`docs/metrics.md` for the one-line definitions.
+The **accuracy gap** runs the trained classifier on the real target niches and on the generated
+niches, each scored against the true centroid labels; a small `|acc_real - acc_gen|` means the
+generated niches are as classifiable as the real ones. See `docs/metric_comparison.md` and
+`docs/metrics.md`.
 
 ## Layout
 
 ```
 src/nicheflow_eval/
-  contract.py          TargetSlide / GeneratedNiches
-  evaluate.py          evaluate(target, generated) -> flat dict
-  metrics/             kernels + wrappers (c2st, distribution, morans, distances, concordance)
-  classifier/          full classifier training (nets, task, dataset, datamodule, train)
-  data/                preprocessing .pkl schema + loader
-  utils/               logging / hydra instantiation / seeding / plotting
+  contract.py          TargetSlide / GeneratedNiches (from_anndata / from_dataclass)
+  data/anndata.py      read raw .h5ad -> arrays; optional shared PCA
+  data/dataclass.py    the niche dataclass schema + loader
+  evaluate.py          evaluate(target, generated) -> flat dict + standalone CLI
+  metrics/             kernels + wrappers (c2st, distribution, morans, distances, concordance, classifier_gap)
+  preprocessing/       raw AnnData -> niche dataclass (radius graph + grid subsample); ported from NicheFlow
+  pipeline/            checkpoint -> generated cells -> metrics (imports nicheflow as a blackbox)
+  classifier/          full classifier training (nets, task, dataset, datamodule, train, train_helper)
 configs/               hydra configs for classifier training
 notebooks/evaluation.ipynb   the end-to-end deliverable
-tests/                 synthetic-data metric tests (no .pkl needed)
+tests/                 synthetic-data metric tests (no real data needed)
 ```
