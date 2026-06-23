@@ -1,0 +1,36 @@
+_target_: nicheflow_eval.classifier.task.CellTypeClassification
+
+# GCN (Kipf & Welling) spatial classifier, masked-centroid. The simplest GNN probe: a
+# baseline to compare against classifier_spatial.yaml (Set-Transformer) and
+# classifier_spatial_deepset.yaml (DeepSet); all three mask the centroid. GNN-native data
+# representation: gene expression = node features, coordinates = graph structure (kNN
+# edges), NOT concatenated.
+net:
+  _target_: nicheflow_eval.classifier.nets.GraphCTClassifierNet
+  input_dim: ${data.n_pcs} # gene-expression dim = GCN node-feature dim
+  coord_dim: ${data.coord_dim} # spatial coord dim (defines edges, not node features)
+  hidden_dim: 64
+  output_dim: ${data.n_classes} # The number of cell types
+  num_layers: 2
+  intra_k: 8 # nearest neighbours per node for the intra-niche kNN graph
+  # Masked centroid (context-only): predict the type from neighbours only, no x0 leak.
+  # Must match the eval model config (point_cloud_transformer_cfm_clf_gcn.yaml).
+  mask_centroid: true
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.00001
+
+lr_scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: max
+  factor: 0.75
+  patience: 25
+
+lr_scheduler_args:
+  monitor: val/f1
+
+plot_callbacks: True

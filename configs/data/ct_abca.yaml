@@ -1,0 +1,12 @@
+defaults:
+  - ct_base
+
+datamodule:
+  # The NEUTRAL classifier trains on a held-out same-mouse slide (neither source nor target),
+  # projected into the source+target PCA basis + label space. `prepare_abca.py --classifier-slide`
+  # writes it as `<out>_clf.pkl` (e.g. abca_aligned_clf.pkl). It is then applied to BOTH the
+  # generated and the paired real target niches by the concordance metric.
+  data_fp: ${paths.data_dir}/abca_aligned_clf.pkl
+
+n_pcs: 50
+n_classes: 17

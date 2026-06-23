@@ -1,0 +1,27 @@
+# @package _global_
+# Train the DeepSet (mean+max) masked-centroid spatial classifier on ABCA. Baseline to
+# compare against abca_spatial.yaml (the Set-Transformer variant). After training, copy
+# the best checkpoint to ckpts/Classifier_Spatial_ABCA_DeepSet.ckpt for the eval
+# experiment (nicheflow/cfm/abca_clf_deepset_eval.yaml).
+defaults:
+  - override /data: ct_abca_spatial
+  - override /model: classifier_spatial_deepset
+  - override /logger: wandb
+  - override /trainer: gpu
+
+logger:
+  wandb:
+    name: "Classifier_Spatial_ABCA_DeepSet"
+
+trainer:
+  max_epochs: 500
+  gradient_clip_val: 1.0
+
+model:
+  plot_callbacks: False
+
+callbacks:
+  model_checkpoint:
+    monitor: "val/f1"
+  early_stopping:
+    monitor: "val/f1"

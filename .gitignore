@@ -1,0 +1,21 @@
+# data & artifacts (never committed)
+outputs/
+logs/
+ckpts/
+docs/
+*.pkl
+*.ckpt
+*.h5ad
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# notebooks scratch
+notebooks/.ipynb_checkpoints/
+src/nicheflow_eval/validation.py

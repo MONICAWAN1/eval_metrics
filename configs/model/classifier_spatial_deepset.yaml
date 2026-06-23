@@ -1,0 +1,32 @@
+_target_: nicheflow_eval.classifier.task.CellTypeClassification
+
+# DeepSet (mean+max pooling) spatial classifier, masked-centroid. Baseline to compare
+# head-to-head with classifier_spatial.yaml (the Set-Transformer variant); both mask the
+# centroid so both score pure spatial-context coherence.
+net:
+  _target_: nicheflow_eval.classifier.nets.SpatialDeepSetCTClassifierNet
+  input_dim: ${data.n_pcs} # The number of PCA components (gene-expression dim)
+  coord_dim: ${data.coord_dim} # The spatial coordinate dim
+  hidden_dim: 64
+  output_dim: ${data.n_classes} # The number of cell types
+  # Masked centroid (context-only): predict the type from neighbours only, no x0 leak.
+  # Must match the eval model config (point_cloud_transformer_cfm_clf_deepset.yaml).
+  mask_centroid: true
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.00001
+
+lr_scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: max
+  factor: 0.75
+  patience: 25
+
+lr_scheduler_args:
+  monitor: val/f1
+
+plot_callbacks: True

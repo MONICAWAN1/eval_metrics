@@ -1,0 +1,33 @@
+_target_: nicheflow_eval.classifier.task.CellTypeClassification
+
+net:
+  _target_: nicheflow_eval.classifier.nets.SpatialCTClassifierNet
+  input_dim: ${data.n_pcs} # The number of PCA components (gene-expression dim)
+  coord_dim: ${data.coord_dim} # The spatial coordinate dim
+  hidden_dim: 64
+  output_dim: ${data.n_classes} # The number of cell types
+  num_heads: 4
+  # true (default): masked centroid — predict the type from the neighbourhood only, so the
+  # metric measures spatial coherence and cannot take the x0 -> type shortcut (no leak of
+  # any center-derived feature). false: centroid-conditioned (centroid queries its
+  # neighbours and keeps its own signal) — only for ablations. Must match the eval model
+  # config (point_cloud_transformer_cfm_clf.yaml) or the checkpoint will not load.
+  mask_centroid: true
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.00001
+
+lr_scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: max
+  factor: 0.75
+  patience: 25
+
+lr_scheduler_args:
+  monitor: val/f1
+
+plot_callbacks: True

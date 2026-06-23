@@ -1,0 +1,42 @@
+_target_: nicheflow_eval.classifier.task.CellTypeClassification
+
+# Class-weighted variant of classifier_spatial_gcn.yaml. The plain GCN collapses onto the
+# majority cell types under the (heavily imbalanced) ABCA olfactory-bulb sections: high
+# accuracy but macro-recall ~0.19 and 6 present classes never predicted. Here the
+# cross-entropy loss is inverse-frequency weighted ("balanced", computed from the train
+# split at fit start) to push the model to cover minority types. Model selection switches
+# to macro-F1 so the checkpoint is not chosen on majority-dominated metrics.
+net:
+  _target_: nicheflow_eval.classifier.nets.GraphCTClassifierNet
+  input_dim: ${data.n_pcs}
+  coord_dim: ${data.coord_dim}
+  hidden_dim: 64
+  output_dim: ${data.n_classes}
+  num_layers: 2
+  intra_k: 8
+  mask_centroid: true
+
+# Class weights computed from the training split at fit start. "balanced_sqrt"
+# (1/sqrt(count)) is recommended here: pure "balanced" (1/count) puts ~536x weight on the
+# 1-cell classes in these slides, which destabilises training; sqrt tempers that to ~38x
+# while still boosting the recoverable mid-tier classes (Immune/OPC-Oligo/Astro-Epen) the
+# plain GCN drops. Switch to "balanced" for the stronger (riskier) version.
+class_weight: balanced_sqrt
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.00001
+
+lr_scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: max
+  factor: 0.75
+  patience: 25
+
+lr_scheduler_args:
+  monitor: val/f1_macro
+
+plot_callbacks: True

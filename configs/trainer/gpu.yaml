@@ -1,0 +1,10 @@
+defaults:
+  - default
+
+accelerator: gpu
+devices: 1
+
+# Mixed precision: bf16 uses the GPU's tensor cores for a large speedup and frees
+# memory. bf16 needs an Ampere or newer GPU (e.g. A100); on Turing/older GPUs
+# (RTX 20xx, T4) switch this to "16-mixed" (fp16).
+precision: "bf16-mixed"

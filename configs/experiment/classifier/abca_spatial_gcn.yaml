@@ -1,0 +1,28 @@
+# @package _global_
+# Train the GCN (Kipf & Welling) masked-centroid spatial classifier on ABCA. The simplest
+# GNN probe; baseline alongside abca_spatial.yaml (Set-Transformer) and
+# abca_spatial_deepset.yaml (DeepSet). After training, copy the best checkpoint to
+# ckpts/Classifier_Spatial_ABCA_GCN.ckpt for the eval experiment
+# (nicheflow/cfm/abca_clf_gcn_eval.yaml).
+defaults:
+  - override /data: ct_abca_spatial
+  - override /model: classifier_spatial_gcn
+  - override /logger: wandb
+  - override /trainer: gpu
+
+logger:
+  wandb:
+    name: "Classifier_Spatial_ABCA_GCN"
+
+trainer:
+  max_epochs: 500
+  gradient_clip_val: 1.0
+
+model:
+  plot_callbacks: False
+
+callbacks:
+  model_checkpoint:
+    monitor: "val/f1"
+  early_stopping:
+    monitor: "val/f1"
