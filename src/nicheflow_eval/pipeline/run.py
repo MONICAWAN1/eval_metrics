@@ -6,11 +6,11 @@ This layer knows **nothing** about any particular generative model. You hand it 
 
 Two ways to use it:
 
-* **Bring your own model.** Write a function matching the :class:`Generator` protocol (see its
+* Use your own model: Write a function matching the :class:`Generator` protocol (see its
   docstring for the one-method contract) and pass it as ``generator=...``. Your function does the
   generation however it likes; :func:`from_generated_anndata` turns its output (a generated
   ``.h5ad`` in gene space) into the pair this pipeline expects, in ~1 line.
-* **Use the bundled NicheFlow adapter.** ``from nicheflow_eval.adapters.nicheflow import
+* Use the bundled NicheFlow adapter: ``from nicheflow_eval.adapters.nicheflow import
   nicheflow_generator`` and pass it as ``generator=nicheflow_generator`` (needs the ``[pipeline]``
   extra). It is just one implementation of :class:`Generator`.
 

@@ -1,8 +1,8 @@
 """Cell-type classifier accuracy gap (``ct/acc_real``, ``ct/acc_gen``, ``ct/acc_gap``).
 
 A complementary read on the concordance probe (see :mod:`nicheflow_eval.metrics.concordance`).
-The intuition: run the **same** trained cell-type classifier on the real target niches and on the
-generated niches, scoring each against the **true** centroid labels. If the generated slide is
+The intuition: run the same trained cell-type classifier on the real target niches and on the
+generated niches, scoring each against the true centroid labels. If the generated slide is
 realistic, the classifier should be about as accurate on it as on the real slide — so a small
 ``|acc_real - acc_gen|`` gap is good (the generated niches are as "classifiable" as the real ones),
 and a large gap flags that generation distorts the local structure the classifier relies on.
@@ -37,12 +37,12 @@ def classifier_accuracy_gap(
     Args:
         gen_x / gen_pos: generated microenvironments ``(B, N, n_pcs)`` / ``(B, N, coord)``,
             centroid at point 0.
-        gt_x / gt_pos: the **paired real target** microenvironments (same centroids), same shapes.
+        gt_x / gt_pos: the paired real target microenvironments (same centroids), same shapes.
         gt_ct: ``(B,)`` true cell-type label of each paired real centroid.
         classifier: a frozen ``torch.nn.Module`` (the trained cell-type classifier). Spatial nets
             take the ``[expression | relative_position]`` point set ``(B, k, n_pcs + coord)``; the
             gene-only net takes the centroid expression ``(B, n_pcs)``.
-        spatial: whether ``classifier`` is a spatial (microenvironment) net or gene-only.
+        spatial: whether ``classifier`` is a spatial SetTransformer-based net or gene-only.
         n_neighbors: microenvironment size for the spatial classifier; ``None`` -> the value
             recorded on the classifier at training time (matching the concordance probe).
 

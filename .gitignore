@@ -19,3 +19,4 @@ __pycache__/
 # notebooks scratch
 notebooks/.ipynb_checkpoints/
 src/nicheflow_eval/validation.py
+.claude/

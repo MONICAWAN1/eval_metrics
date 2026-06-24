@@ -1,18 +1,15 @@
 """Read evaluation inputs straight from original AnnData (``.h5ad``) files.
 
-The user-facing inputs are plain AnnData slides — **raw gene expression + spatial coordinates** —
-not a preprocessed pickle. This module pulls the arrays the metrics need out of an ``AnnData``:
+The user-facing inputs are plain AnnData slides containing raw gene expression + spatial coordinates. 
+This module pulls the arrays the metrics need out of an AnnData file:
 
 * expression — ``adata.X`` (the genes) by default, or an ``obsm``/``layers`` key if you already
   have a reduced space (e.g. ``X_pca``);
 * coordinates — ``adata.obsm[spatial_key]`` (squidpy/scanpy convention, default ``"spatial"``);
-* optional cell-type labels — ``adata.obs[ct_key]`` (mapped to ints);
-* optional slide id — ``adata.obs[timepoint_key]`` to slice one slide out of a multi-slide file.
+* optional cell-type labels — ``adata.obs[ct_key]`` (mapped to ints).
 
-Nothing here imports the flow model or the niche pipeline — it is the lightweight, standalone
-entry point used by :class:`~nicheflow_eval.contract.TargetSlide` /
-:class:`~nicheflow_eval.contract.GeneratedNiches`. PCA is **not** assumed to exist; pass
-``n_pcs`` to fit one on the target (see :func:`fit_pca`) and project both sides into it.
+PCA is not assumed to exist; pass ``n_pcs`` to fit one on the target (see :func:`fit_pca`) and project 
+both sides into it.
 """
 
 from __future__ import annotations
@@ -86,7 +83,7 @@ class _PCA:
     """A minimal frozen PCA: centre on the fit mean, project onto stored components.
 
     Mirrors ``sklearn``'s ``transform`` (centre then ``@ components_.T``) so a PCA fit on the
-    *target* slide can be applied identically to the generated cells, guaranteeing both live in
+    target slide can be applied identically to the generated cells, guaranteeing both live in
     one basis. Kept tiny and dependency-light so it pickles into a results bundle cleanly.
     """
 
