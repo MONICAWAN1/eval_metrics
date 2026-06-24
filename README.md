@@ -1,11 +1,12 @@
 # paired-slides-eval
 
-A **model-agnostic evaluation library** for generative models on spatial transcriptomics. You bring
-a real **target slide** and the **generated cells** your model produced (both as AnnData / arrays),
-and it computes the metric suite. It knows nothing about *how* you generated — generation lives in
-your own code, where your model is. (An optional integrated-generation layer exists for models that
-ship an adapter — see [Optional: integrated generation](#optional-integrated-generation) at the
-bottom.)
+A **model-agnostic evaluation library** for generative models on spatial transcriptomics. It scores
+a set of **generated cells** against a real **target slide** — each given as plain arrays, an
+expression matrix paired with spatial coordinates — and reports the full metric suite. Evaluation is
+decoupled from generation: a model's architecture and sampling code stay wherever the model lives,
+and this library consumes only the cells it produces. An optional integrated-generation layer is
+available for models that ship an adapter (see
+[Optional: integrated generation](#optional-integrated-generation)).
 
 ## Install
 
@@ -26,7 +27,7 @@ The bundled NicheFlow adapter also needs the `nicheflow` package (not on PyPI):
 
 ## Quickstart — evaluate two files
 
-The front door is `evaluate_files`: call it right after your own pipeline writes its generated
+Call `evaluate_files` right after your own pipeline writes its generated
 cells.
 
 ```python
@@ -144,9 +145,8 @@ point `python -m paired_slides_eval.classifier.train`).
 
 ## Optional: integrated generation
 
-This is a **convenience for models that ship an adapter**, not the core of the library — most users
-generate in their own repo and just call `evaluate_files`. A checkpoint is only weights, so the
-package can generate *for you* only when it has the model's code (a `generator` adapter).
+If only a trained checkpoint is provided, the package can generate cells based on the checkpoint
+when it has the model's code (a `generator` adapter).
 
 A **generator** is any callable implementing the `Generator` protocol — it turns raw slides + a
 checkpoint into a comparable `(target, generated)` pair:
@@ -155,16 +155,15 @@ checkpoint into a comparable `(target, generated)` pair:
 def my_generator(*, source, target, checkpoint, **kwargs) -> GenerationOutput: ...
 ```
 
-You write it once in **your** code (the only place your model is imported); the package never
-imports your model. `from_generated_anndata` builds the return value in one line if your model
-writes a gene-space `.h5ad`:
+Define this in your code repo for the model. `from_generated_anndata` builds the return value in 
+one line if your model writes a gene-space `.h5ad`:
 
 ```python
 from paired_slides_eval.pipeline import run_pipeline, from_generated_anndata
-from my_model import sample                                   # YOUR model, in YOUR module
+from my_model import sample                                   
 
 def my_generator(*, source, target, checkpoint, ct_key="class", n_pcs=50, **_):
-    sample(source, target, checkpoint, out="gen.h5ad")        # your code; gene-space cells
+    sample(source, target, checkpoint, out="gen.h5ad")        # generation code from model repo
     return from_generated_anndata("gen.h5ad", target, ct_key=ct_key, n_pcs=n_pcs)
 
 res = run_pipeline("source.h5ad", "target.h5ad", "model.ckpt", generator=my_generator)
