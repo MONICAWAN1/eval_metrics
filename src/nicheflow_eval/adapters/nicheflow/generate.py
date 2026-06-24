@@ -1,13 +1,13 @@
 """Generate cells from a trained NicheFlow checkpoint — ``nicheflow`` used as a blackbox.
 
 This is the only place that imports the flow model. Given a preprocessed source+target dataclass
-(:func:`nicheflow_eval.preprocessing.preprocess_pair`) and a checkpoint, it builds the
-``PointCloudFlow``, loads the trained backbone weights, and runs the original ``flow.sample`` over
-NicheFlow's ``TestMicroEnvDataset`` to produce the generated target niches.
+(:func:`nicheflow_eval.adapters.nicheflow.preprocess.preprocess_pair`) and a checkpoint, it builds
+the ``PointCloudFlow``, loads the trained backbone weights, and runs the original ``flow.sample``
+over NicheFlow's ``TestMicroEnvDataset`` to produce the generated target niches.
 
 The generated cells live in the preprocessor's **standardized ``X_pca``** space (the space the
-model trained in), so they are directly comparable to a ``TargetSlide`` built from the **same**
-dataclass via :meth:`TargetSlide.from_dataclass`.
+model trained in), so they are directly comparable to the ``TargetSlide`` the adapter builds from
+the **same** dataclass (see ``nicheflow_eval.adapters.nicheflow.target_from_dataclass``).
 
 Requires the ``nicheflow`` package (the ``[pipeline]`` extra).
 """

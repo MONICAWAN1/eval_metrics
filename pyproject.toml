@@ -35,8 +35,9 @@ dependencies = [
 
 [project.optional-dependencies]
 wandb = ["wandb>=0.16"]
-# The full checkpoint -> generation pipeline (`nicheflow_eval.pipeline`) imports the NicheFlow
-# flow model as a blackbox. NicheFlow is not on PyPI; install it from the sibling repo, e.g.:
+# The bundled generation adapter (`nicheflow_eval.adapters.nicheflow`) imports the NicheFlow flow
+# model as a blackbox. The generic pipeline (`nicheflow_eval.pipeline`) and standalone metrics do
+# NOT need it. NicheFlow is not on PyPI; install it from the sibling repo, e.g.:
 #   pip install -e ../nicheflow_mba
 # (kept out of the dependency list so the standalone metric path installs without it).
 pipeline = []

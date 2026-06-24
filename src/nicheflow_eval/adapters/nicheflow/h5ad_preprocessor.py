@@ -1,7 +1,7 @@
 """``H5ADPreprocessor`` — port of ``nicheflow.preprocessing.h5ad_preprocessor``.
 
 Turns an ``AnnData`` whose ``obsm['X_pca']`` / ``varm['PCs']`` are already computed (see
-:func:`nicheflow_eval.preprocessing.prepare.compute_pca`) into the
+:func:`nicheflow_eval.adapters.nicheflow.preprocess.compute_pca`) into the
 :class:`~nicheflow_eval.data.dataclass.H5ADDatasetDataclass` the niche-based code consumes:
 per-slide standardized coordinates + standardized ``X_pca``, the radius graph, and the
 density-matched grid subsample of centroids.
@@ -23,8 +23,11 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from nicheflow_eval.adapters.nicheflow.graph import (
+    chunked_cdist_sum_argsort,
+    grid_based_sampling_by_y,
+)
 from nicheflow_eval.data.dataclass import H5ADDatasetDataclass
-from nicheflow_eval.preprocessing.graph import chunked_cdist_sum_argsort, grid_based_sampling_by_y
 
 MIN_COVERAGE = 5
 _logger = logging.getLogger(__name__)

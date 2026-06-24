@@ -10,11 +10,21 @@ Standalone (evaluate cells you already generated)::
     generated = GeneratedNiches.from_anndata("generated.h5ad")         # (B, N, D), centroid first
     results = evaluate(target, generated)                              # {test/group/metric: value}
 
-Full pipeline (checkpoint + raw slides -> generate -> metrics; needs the ``[pipeline]`` extra)::
+Full pipeline (checkpoint + raw slides -> generate -> metrics). The generation step is a
+pluggable blackbox: pass any ``generator`` implementing :class:`nicheflow_eval.pipeline.Generator`.
+The bundled NicheFlow adapter (needs the ``[pipeline]`` extra) is one such generator::
 
     from nicheflow_eval.pipeline import run_pipeline
+    from nicheflow_eval.adapters.nicheflow import nicheflow_generator
 
-    res = run_pipeline("source.h5ad", "target.h5ad", "flow.ckpt", classifier_h5ad="clf.h5ad")
+    res = run_pipeline(
+        "source.h5ad", "target.h5ad", "flow.ckpt",
+        generator=nicheflow_generator, classifier_h5ad="clf.h5ad",
+    )
+
+Bring your own model: write a ``generator`` that returns a
+:class:`nicheflow_eval.pipeline.GenerationOutput` (``from_generated_anndata`` does this in one line
+from a generated ``.h5ad``) — no NicheFlow needed.
 """
 
 from nicheflow_eval.contract import GeneratedNiches, TargetSlide

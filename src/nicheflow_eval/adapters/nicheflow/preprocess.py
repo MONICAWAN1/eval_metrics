@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from nicheflow_eval.adapters.nicheflow.h5ad_preprocessor import H5ADPreprocessor
 from nicheflow_eval.data.dataclass import H5ADDatasetDataclass
-from nicheflow_eval.preprocessing.h5ad_preprocessor import H5ADPreprocessor
 
 SLIDE_A = "A"  # source
 SLIDE_B = "B"  # target

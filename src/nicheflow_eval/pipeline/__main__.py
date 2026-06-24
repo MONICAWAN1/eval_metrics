@@ -1,4 +1,9 @@
-"""CLI for the full pipeline: ``python -m nicheflow_eval.pipeline --source ... --target ...``."""
+"""CLI for the full pipeline: ``python -m nicheflow_eval.pipeline --source ... --target ...``.
+
+Uses the bundled NicheFlow adapter as the generator (needs the ``[pipeline]`` extra). To drive a
+different model, call :func:`nicheflow_eval.pipeline.run.run_pipeline` from Python with your own
+``generator=``.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,7 @@ from nicheflow_eval.pipeline.run import run_pipeline
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Generate cells from a NicheFlow checkpoint and evaluate them, from raw AnnData."
+        description="Generate cells from a NicheFlow checkpoint and evaluate them, from AnnData."
     )
     ap.add_argument("--source", required=True, help="source slide .h5ad (raw genes+coords)")
     ap.add_argument("--target", required=True, help="target slide .h5ad (to generate)")
@@ -35,11 +40,18 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
+    # Imported here so the standalone metric path never requires the [pipeline] extra.
+    from nicheflow_eval.adapters.nicheflow import nicheflow_generator
+
     groups = tuple(args.groups) if args.groups else ALL_GROUPS
     res = run_pipeline(
         args.source,
         args.target,
         args.checkpoint,
+        generator=nicheflow_generator,
+        groups=groups,
+        seed=args.seed,
+        # forwarded to the NicheFlow adapter:
         classifier_h5ad=args.classifier,
         classifier_ckpt=args.classifier_ckpt,
         n_pcs=args.n_pcs,
@@ -52,8 +64,6 @@ def main() -> None:
         solver=args.solver,
         variant=args.variant,
         n_slices=args.n_slices,
-        groups=groups,
-        seed=args.seed,
         generated_out=args.generated_out,
     )
 

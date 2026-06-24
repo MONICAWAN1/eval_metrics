@@ -4,10 +4,12 @@ Standalone evaluation metrics for spatial single-cell generative models (NicheFl
 **original AnnData (`.h5ad`) files** — raw gene expression + spatial coordinates. Two ways to use it:
 
 - **Standalone** — give it a real **target slide** and a set of **generated cells** (both AnnData),
-  and it computes the full metric suite.
-- **Full pipeline** — give it the **source** + **target** slides, a slide to **train the
-  classifier** on, and a trained flow **checkpoint**; it preprocesses the niches, generates the
-  target with the flow (importing NicheFlow as a blackbox), and evaluates — no manual preprocessing.
+  and it computes the full metric suite. This is the truest blackbox boundary: generate cells with
+  *any* model, write them to a `.h5ad`, evaluate. No NicheFlow needed.
+- **Full pipeline** — give it the **source** + **target** slides, a trained **checkpoint**, and a
+  **`generator`** (the model blackbox); it generates the target and evaluates — no manual
+  preprocessing. The bundled `nicheflow_generator` is one such generator; bring your own by writing
+  a callable that returns a `GenerationOutput` (see *Bring your own model* below).
 
 It also bundles the **full cell-type-classifier training pipeline** used by the classifier metrics.
 
@@ -18,8 +20,9 @@ cd nicheflow-eval
 uv venv && uv pip install -e ".[wandb]"   # or: pip install -e .
 ```
 
-The standalone metrics need only the deps above. The **full pipeline** additionally imports
-NicheFlow (not on PyPI); install it from the sibling repo:
+The standalone metrics and the generic pipeline need only the deps above. The bundled **NicheFlow
+adapter** (`nicheflow_eval.adapters.nicheflow`) additionally imports NicheFlow (not on PyPI);
+install it from the sibling repo — only if you use that adapter:
 
 ```bash
 pip install -e ../nicheflow_mba       # provides the `nicheflow` package used for generation
@@ -57,18 +60,23 @@ generated = GeneratedNiches.from_anndata("generated.h5ad").project(target.pca)
 
 ## Full pipeline (checkpoint → generated cells → metrics)
 
+The pipeline is **model-agnostic**: `run_pipeline` takes a `generator` (the blackbox). The bundled
+NicheFlow adapter is one generator:
+
 ```python
 from nicheflow_eval.pipeline import run_pipeline
+from nicheflow_eval.adapters.nicheflow import nicheflow_generator
 
 res = run_pipeline(
-    "source.h5ad", "target.h5ad", "flow.ckpt",   # source/target slides + trained flow checkpoint
+    "source.h5ad", "target.h5ad", "flow.ckpt",   # source/target slides + trained checkpoint
+    generator=nicheflow_generator,                # the model blackbox
     classifier_h5ad="classifier_slide.h5ad",      # held-out slide to train the neutral classifier
-    n_pcs=50,
+    n_pcs=50,                                      # forwarded to the adapter
 )
 print(res.metrics)                                # flat {test/group/metric: value} dict
 ```
 
-Or from the command line:
+Or from the command line (defaults to the NicheFlow adapter):
 
 ```bash
 python -m nicheflow_eval.pipeline \
@@ -78,12 +86,32 @@ python -m nicheflow_eval.pipeline \
   --generated_out generated.h5ad --out results.csv
 ```
 
-The pipeline preprocesses the source+target pair into the niche scaffolding (shared PCA on the
-concatenated pair, per-slide coordinate standardization, radius graph + grid subsample — the
+The NicheFlow adapter preprocesses the source+target pair into the niche scaffolding (shared PCA on
+the concatenated pair, per-slide coordinate standardization, radius graph + grid subsample — the
 original NicheFlow preprocessing, ported here; **no global alignment / PASTE2**), generates the
-target with `flow.sample`, trains/loads the classifier, and evaluates. Generated cells live in the
-preprocessor's standardized `X_pca` space, and the target is read from the same space so the metrics
-are comparable.
+target with `flow.sample`, trains/loads the classifier, and hands a comparable `(target, generated)`
+pair (in the standardized `X_pca` space) back to the pipeline.
+
+### Bring your own model
+
+You never need to know anything about NicheFlow. Write a `generator` — any callable that turns the
+raw slides + a checkpoint into a `GenerationOutput`. If your model writes generated cells to a
+`.h5ad` in gene space, `from_generated_anndata` builds the output in one line:
+
+```python
+from nicheflow_eval.pipeline import run_pipeline, from_generated_anndata
+
+def my_generator(*, source, target, checkpoint, **kw):
+    my_model_generate(source, target, checkpoint, out="gen.h5ad")   # your code; gene-space niches
+    return from_generated_anndata("gen.h5ad", target, ct_key="class", n_pcs=50)
+
+res = run_pipeline("source.h5ad", "target.h5ad", "model.ckpt",
+                   generator=my_generator, classifier="classifier.ckpt")
+```
+
+The generated `.h5ad` follows the `GeneratedNiches.from_anndata` layout: one row per cell,
+`obs['niche_id']` grouping each niche (centroid first), coords in `obsm['spatial']`, and optional
+paired ground truth in `obsm['gt_x']` / `obsm['gt_pos']` / `obs['gt_ct']`.
 
 ## Run the standalone evaluation (command line)
 
@@ -133,13 +161,15 @@ generated niches are as classifiable as the real ones. See `docs/metric_comparis
 
 ```
 src/nicheflow_eval/
-  contract.py          TargetSlide / GeneratedNiches (from_anndata / from_dataclass)
-  data/anndata.py      read raw .h5ad -> arrays; optional shared PCA
-  data/dataclass.py    the niche dataclass schema + loader
+  contract.py          TargetSlide / GeneratedNiches (from_anndata) — the AnnData input contract
+  data/anndata.py      read raw .h5ad -> arrays; optional shared PCA          [common, model-agnostic]
+  data/dataclass.py    the internal niche pickle schema + loader
   evaluate.py          evaluate(target, generated) -> flat dict + standalone CLI
-  metrics/             kernels + wrappers (c2st, distribution, morans, distances, concordance, classifier_gap)
-  preprocessing/       raw AnnData -> niche dataclass (radius graph + grid subsample); ported from NicheFlow
-  pipeline/            checkpoint -> generated cells -> metrics (imports nicheflow as a blackbox)
+  metrics/             kernels + each metric's own prep (c2st, distribution, morans, distances,
+                       concordance, classifier_gap) — Moran/classifier niches built here, locally
+  pipeline/            model-agnostic run_pipeline + Generator protocol (NO nicheflow import)
+  adapters/nicheflow/  the NicheFlow generator blackbox: preprocess + graph + generate (imports
+                       nicheflow); the only model-specific code
   classifier/          full classifier training (nets, task, dataset, datamodule, train, train_helper)
 configs/               hydra configs for classifier training
 notebooks/evaluation.ipynb   the end-to-end deliverable

@@ -1,4 +1,4 @@
-"""Smoke test the niche preprocessing port (needs torch + scanpy; skips otherwise)."""
+"""Smoke test the NicheFlow adapter preprocessing (needs torch + scanpy; skips otherwise)."""
 
 import pytest
 
@@ -8,7 +8,7 @@ ad = pytest.importorskip("anndata")
 
 import pandas as pd
 
-from nicheflow_eval.preprocessing import preprocess_pair
+from nicheflow_eval.adapters.nicheflow import preprocess_pair, target_from_dataclass
 
 
 def _toy_slide(rng, n=120, n_genes=30):
@@ -37,9 +37,7 @@ def test_preprocess_pair_builds_dataclass(tmp_path, rng):
         assert len(ds.subsampled_timepoint_idx[t]) > 0
     assert ds.test_microenvs == max(len(v) for v in ds.subsampled_timepoint_idx.values())
 
-    # TargetSlide.from_dataclass reads the standardized X_pca space.
-    from nicheflow_eval import TargetSlide
-
-    target = TargetSlide.from_dataclass(ds, timepoint="B")
+    # target_from_dataclass reads the standardized X_pca space.
+    target = target_from_dataclass(ds, timepoint="B")
     assert target.x.shape[1] == 10
     assert target.n_classes == len(ds.ct_to_int)

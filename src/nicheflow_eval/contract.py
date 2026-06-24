@@ -100,29 +100,6 @@ class TargetSlide:
 
         return cls(x=x, pos=pos, ct=ct, n_classes=n_classes, pca=pca)
 
-    @classmethod
-    def from_dataclass(cls, ds, timepoint: str, n_pcs: int | None = None) -> TargetSlide:
-        """Build a ``TargetSlide`` from a preprocessed ``H5ADDatasetDataclass`` and a timepoint.
-
-        Used by the full pipeline: the generated cells live in this dataclass's **standardized
-        ``X_pca``** space, so the target must come from the same dataclass (not raw genes) for the
-        spaces to match. Slices the timepoint's cells and maps cell-type labels to ints.
-        """
-        cells = np.asarray(ds.timepoint_indices[timepoint])
-        x = np.asarray(ds.X_pca[cells])
-        if n_pcs is not None:
-            x = x[:, :n_pcs]
-        pos = np.asarray(ds.coords[cells])
-
-        ct_raw = np.asarray(ds.ct)[cells]
-        if np.issubdtype(ct_raw.dtype, np.integer):
-            ct = ct_raw.astype(np.int64)
-        else:
-            ct = np.array([ds.ct_to_int[c] for c in ct_raw], dtype=np.int64)
-        n_classes = len(ds.ct_to_int)
-
-        return cls(x=x, pos=pos, ct=ct, n_classes=n_classes, pca=None)
-
 
 @dataclass
 class GeneratedNiches:
