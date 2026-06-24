@@ -138,15 +138,28 @@ class GeneratedNiches:
                 f"GeneratedNiches expects (B, N, D) arrays; got x{self.x.shape} pos{self.pos.shape}"
             )
 
+    def to_slide(self) -> GeneratedSlide:
+        """Flatten the niches into a :class:`GeneratedSlide` — all niche points pooled.
+
+        The single flattening path: every cell of every niche becomes one row in an
+        ``(B*N, D)`` cloud. Overlapping niches therefore repeat shared cells (the points are the
+        cells the niche model emitted). The label-free metrics consume this; ``flat_x`` /
+        ``flat_pos`` are thin views over it.
+        """
+        return GeneratedSlide(
+            x=self.x.reshape(-1, self.x.shape[-1]),
+            pos=self.pos.reshape(-1, self.pos.shape[-1]),
+        )
+
     @property
     def flat_x(self) -> np.ndarray:
-        """All generated cells pooled into one ``(B*N, n_features)`` cloud."""
-        return self.x.reshape(-1, self.x.shape[-1])
+        """All generated cells as one ``(B*N, n_features)`` cloud (see :meth:`to_slide`)."""
+        return self.to_slide().x
 
     @property
     def flat_pos(self) -> np.ndarray:
-        """All generated cells pooled into one ``(B*N, coord)`` cloud."""
-        return self.pos.reshape(-1, self.pos.shape[-1])
+        """All generated cells pooled into one ``(B*N, coord)`` cloud (via :meth:`to_slide`)."""
+        return self.to_slide().pos
 
     @property
     def centroid_x(self) -> np.ndarray:
@@ -278,6 +291,10 @@ class GeneratedSlide:
     def flat_pos(self) -> np.ndarray:
         """All generated cells as an ``(N, coord)`` cloud (already flat)."""
         return self.pos
+
+    def to_slide(self) -> GeneratedSlide:
+        """Return ``self`` — a flat slide is already flat (symmetry with ``GeneratedNiches``)."""
+        return self
 
     def project(self, pca) -> GeneratedSlide:
         """Project expression through a target ``pca`` into the shared basis (no-op if ``None``)."""

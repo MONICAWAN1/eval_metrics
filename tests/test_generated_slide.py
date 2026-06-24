@@ -3,7 +3,20 @@
 import numpy as np
 import pytest
 
-from nicheflow_eval import GeneratedSlide, TargetSlide, evaluate
+from nicheflow_eval import GeneratedNiches, GeneratedSlide, TargetSlide, evaluate
+
+
+def test_niches_to_slide_is_single_flatten_path(generated_adata):
+    niches = GeneratedNiches.from_anndata(generated_adata)
+    slide = niches.to_slide()
+    assert isinstance(slide, GeneratedSlide)
+    b, n, d = niches.x.shape
+    assert slide.x.shape == (b * n, d)
+    # flat_x / flat_pos are views over to_slide()
+    np.testing.assert_array_equal(niches.flat_x, slide.x)
+    np.testing.assert_array_equal(niches.flat_pos, slide.pos)
+    # a flat slide's to_slide() is itself
+    assert slide.to_slide() is slide
 
 
 def test_generated_slide_from_anndata(generated_slide_adata):

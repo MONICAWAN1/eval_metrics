@@ -124,19 +124,41 @@ The generated `.h5ad` follows the `GeneratedNiches.from_anndata` layout: one row
 `obs['niche_id']` grouping each niche (centroid first), coords in `obsm['spatial']`, and optional
 paired ground truth in `obsm['gt_x']` / `obsm['gt_pos']` / `obs['gt_ct']`.
 
-## Run the standalone evaluation (command line)
+### Alternative: generate once, then evaluate (two steps)
+
+Instead of the one-shot `run_pipeline`, split it: **generate** the cells to a `.h5ad` once, then
+**evaluate** that file as many times (and on whatever metric subset) as you like without
+regenerating. Generation with the bundled NicheFlow adapter:
+
+```python
+from nicheflow_eval.adapters.nicheflow import preprocess_pair, generate
+
+ds, _ = preprocess_pair("source.h5ad", "target.h5ad", n_pcs=50, cell_type_column="class")
+gen = generate(ds, "flow.ckpt", variant="cfm")     # samples the flow
+gen.to_anndata().write_h5ad("generated.h5ad")       # niche-shaped generated cells
+```
+
+(Or swap in your own model and write `generated.h5ad` yourself — niche-shaped, or flat
+`X`+`obsm['spatial']` for a whole-slide model.) Then evaluate it with the CLI below.
+
+## Evaluate (all metrics, or a selected subset)
 
 `python -m nicheflow_eval.evaluate` runs the suite on one `(target slide, generated cells)` pair: a
-target `.h5ad` and the generated cells as `.npz` (arrays `x (B,N,P)`, `pos (B,N,P)`; optional
-`gt_x`/`gt_pos`/`gt_ct`) or a flat generated `.h5ad`.
+target `.h5ad` plus generated cells as a `.h5ad` (niche-shaped with `obs['niche_id']`, or flat
+`X`+`obsm['spatial']`) or an `.npz` (`x`/`pos`, 3-D for niches or 2-D for flat; optional `gt_*`).
 
 ```bash
-# geometry + distribution + C2ST + Moran (no trained classifier needed)
-python -m nicheflow_eval.evaluate --target TARGET.h5ad --generated generated.npz --out results.csv
+# ALL applicable metrics (default). Geometry + distribution + C2ST + Moran need no classifier:
+python -m nicheflow_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
+  --ct_key class --n_pcs 50 --out results.csv
 
-# add the classifier groups (concordance + accuracy gap)
-python -m nicheflow_eval.evaluate \
-  --target TARGET.h5ad --generated generated.npz \
+# a SELECTED subset only:
+python -m nicheflow_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
+  --groups c2st moran
+
+# add the classifier groups (concordance + accuracy gap) — needs a TRAINED classifier (see below):
+python -m nicheflow_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
+  --ct_key class --n_pcs 50 \
   --classifier Classifier_Spatial.ckpt --out results.csv
 ```
 
@@ -145,11 +167,52 @@ Groups whose inputs are missing are skipped automatically (no `gt_*` → skips r
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--classifier` | none | classifier `.ckpt`; enables the `ct/*` groups. `n_neighbors` is read from the checkpoint |
+| `--classifier` | none | trained classifier `.ckpt`; enables the `ct/*` groups. `n_neighbors` is read from the checkpoint |
 | `--groups` | all | subset, e.g. `--groups c2st moran` |
 | `--n_pcs` | none | fit a PCA on the target to N PCs and project the generated cells into it |
 | `--expr_key` / `--spatial_key` / `--ct_key` | `X`/`spatial`/none | where expression/coords/labels live |
 | `--seed` | `0` | |
+
+## Train the classifier (required for the `ct/*` metrics)
+
+The two classifier metrics (`concordance`, `ct_gap`) need a **trained spatial cell-type
+classifier** — there is no default one. Train it on a held-out slide **before** running those
+groups. The classifier must live in the **same PCA basis** as the target you evaluate, so it's
+projected into the source+target basis at preprocessing time.
+
+**Easiest — let the pipeline train it inline.** `run_pipeline` / the pipeline CLI with
+`--classifier <slide.h5ad>` preprocesses the held-out slide into the source+target basis and trains
+the classifier automatically — no checkpoint to manage:
+
+```bash
+python -m nicheflow_eval.pipeline \
+  --source ../nicheflow_mba/data/adata_Zhuang_Zhuang-ABCA-1.024.h5ad \
+  --target ../nicheflow_mba/data/adata_Zhuang_Zhuang-ABCA-1.025.h5ad \
+  --checkpoint ../nicheflow_mba/ckpts/NicheFlow_CFM_ABCA.ckpt \
+  --classifier ../fm_mnist/data/adata_Zhuang_Zhuang-ABCA-1.001.h5ad \
+  --variant cfm
+```
+
+**Reusable checkpoint (Hydra).** To train once and reuse the `.ckpt` across standalone evaluations,
+use the configured entry point. It reads a preprocessed niche `.pkl` via `data.datamodule.data_fp`:
+
+```bash
+python -m nicheflow_eval.classifier.train experiment=classifier/abca_spatial \
+  data.datamodule.data_fp=PATH/TO/classifier_niches.pkl
+```
+
+The checkpoint lands under `outputs/.../checkpoints/`; pass it to evaluation with `--classifier
+<ckpt>`. Build the `.pkl` from a raw slide by projecting it into the **same** source+target basis,
+then pickling:
+
+```python
+import pickle
+from nicheflow_eval.adapters.nicheflow import preprocess_pair, preprocess_classifier_slide
+
+_, pre = preprocess_pair("source.h5ad", "target.h5ad", n_pcs=50, cell_type_column="class")
+clf_ds = preprocess_classifier_slide("classifier_slide.h5ad", pre, cell_type_column="class")
+pickle.dump(clf_ds, open("classifier_niches.pkl", "wb"))   # niche .pkl for the Hydra trainer
+```
 
 ## Metrics
 
