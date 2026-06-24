@@ -1,17 +1,17 @@
 # nicheflow-eval
 
-Standalone evaluation metrics for spatial single-cell generative models (NicheFlow). Inputs are
-**original AnnData (`.h5ad`) files** — raw gene expression + spatial coordinates. Two ways to use it:
+Evaluation metrics for generative models on spatial transcriptomics. Inputs are
+**original AnnData (`.h5ad`) files** with raw gene expression + spatial coordinates. Two ways to use it:
 
-- **Standalone** — give it a real **target slide** and a set of **generated cells** (both AnnData),
-  and it computes the full metric suite. This is the truest blackbox boundary: generate cells with
-  *any* model, write them to a `.h5ad`, evaluate. No NicheFlow needed.
 - **Full pipeline** — give it the **source** + **target** slides, a trained **checkpoint**, and a
-  **`generator`** (the model blackbox); it generates the target and evaluates — no manual
-  preprocessing. The bundled `nicheflow_generator` is one such generator; bring your own by writing
+  **`generator`** (the model blackbox); it generates the target and evaluates. The bundled 
+  `nicheflow_generator` is one example of such generator; bring your own by writing
   a callable that returns a `GenerationOutput` (see *Bring your own model* below).
+- **Standalone** — if there already exists a precomputed **generated cells** AnnData file along with the real 
+**target slide** AnnData file, it can computes the full metric suite directly. 
 
-It also bundles the **full cell-type-classifier training pipeline** used by the classifier metrics.
+It also bundles the **full cell-type-classifier training pipeline** used by the classifier metrics. The classifier
+needs to be trained first on the classifier-training-slide before running the evaluation metrics.  
 
 ## Install
 
@@ -22,7 +22,7 @@ uv venv && uv pip install -e ".[wandb]"   # or: pip install -e .
 
 The standalone metrics and the generic pipeline need only the deps above. The bundled **NicheFlow
 adapter** (`nicheflow_eval.adapters.nicheflow`) additionally imports NicheFlow (not on PyPI);
-install it from the sibling repo — only if you use that adapter:
+install it from the sibling repo only if using nicheflow:
 
 ```bash
 pip install -e ../nicheflow_mba       # provides the `nicheflow` package used for generation
@@ -30,7 +30,7 @@ pip install -e ../nicheflow_mba       # provides the `nicheflow` package used fo
 
 ## Inputs: AnnData (`.h5ad`)
 
-No preprocessed pickle is required. Each slide is a plain AnnData with:
+Each slide is a plain AnnData with:
 
 | Field | Where | Notes |
 |---|---|---|
@@ -48,7 +48,7 @@ No preprocessed pickle is required. Each slide is a plain AnnData with:
   `obsm["gt_x"]`/`obsm["gt_pos"]` and the paired real centroid label in `obs["gt_ct"]`. Required by
   the niche metrics (regression, concordance, ct_gap).
 
-PCA is **not** assumed. Target and generated must share one feature space — either keep both as raw
+Target and generated must share one feature space — either keep both as raw
 genes (same panel), or pass `n_pcs=` to fit one PCA on the target and `.project()` the generated
 cells through it:
 
@@ -98,14 +98,13 @@ python -m nicheflow_eval.pipeline \
 ```
 
 The NicheFlow adapter preprocesses the source+target pair into the niche scaffolding (shared PCA on
-the concatenated pair, per-slide coordinate standardization, radius graph + grid subsample — the
-original NicheFlow preprocessing, ported here; **no global alignment / PASTE2**), generates the
+the concatenated pair, per-slide coordinate standardization, radius graph + grid subsample), generates the
 target with `flow.sample`, trains/loads the classifier, and hands a comparable `(target, generated)`
 pair (in the standardized `X_pca` space) back to the pipeline.
 
 ### Bring your own model
 
-You never need to know anything about NicheFlow. Write a `generator` — any callable that turns the
+If you are using other generative models, write a `generator` — any callable that turns the
 raw slides + a checkpoint into a `GenerationOutput`. If your model writes generated cells to a
 `.h5ad` in gene space, `from_generated_anndata` builds the output in one line:
 
