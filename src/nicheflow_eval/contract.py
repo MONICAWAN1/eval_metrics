@@ -3,14 +3,23 @@
 The metrics take the real target slide and the generated cells — both as plain arrays. The
 user-facing inputs are **original AnnData (``.h5ad``) files** (raw gene expression + spatial
 coordinates); build the dataclasses with :meth:`TargetSlide.from_anndata` /
-:meth:`GeneratedNiches.from_anndata`.
+:meth:`GeneratedSlide.from_anndata` / :meth:`GeneratedNiches.from_anndata`.
+
+Two shapes for the generated cells:
+
+* :class:`GeneratedSlide` — a **flat** slide, ``x (N, D)`` + ``pos (N, D)``. Use this for
+  whole-slide generative models. The label-free metrics (psd, spd, distribution, c2st, moran)
+  run on it directly; the niche metrics are skipped.
+* :class:`GeneratedNiches` — **niche-shaped**, ``x (B, N, D)`` (centroid at point 0). Required by
+  the niche metrics (regression, concordance, ct_gap), which compare each generated niche to its
+  paired real microenvironment.
 
 Conventions
 -----------
 * Expression and generated cells must share one feature space. The simplest way to guarantee
   this is to keep both as raw genes (same gene panel), or to fit one PCA on the target
   (``TargetSlide.from_anndata(..., n_pcs=50)``) and project the generated cells through it with
-  :meth:`GeneratedNiches.project`.
+  ``.project(target.pca)``.
 * A niche = a centroid cell (point index 0) + its ``N - 1`` neighbours.
 """
 
@@ -233,3 +242,62 @@ class GeneratedNiches:
             return arr.detach().cpu().numpy() if hasattr(arr, "detach") else _np.asarray(arr)
 
         return cls(x=_last(x_traj), pos=_last(pos_traj), **kwargs)
+
+
+@dataclass
+class GeneratedSlide:
+    """Generated cells as a **flat** slide: ``x (N, D)`` + ``pos (N, coord)``.
+
+    For whole-slide generative models that emit a tissue directly, with no niche/microenvironment
+    structure. The label-free metrics — ``psd``, ``spd``, ``distribution``, ``c2st``, ``moran`` —
+    consume the flat cloud directly. The niche metrics (``regression``, ``concordance``,
+    ``ct_gap``) need :class:`GeneratedNiches` and are skipped for a ``GeneratedSlide``.
+
+    Exposes the same ``flat_x`` / ``flat_pos`` / ``project`` interface as
+    :class:`GeneratedNiches`, so :func:`nicheflow_eval.evaluate.evaluate` accepts either.
+    """
+
+    x: np.ndarray  # (N, n_features)
+    pos: np.ndarray  # (N, coord)
+
+    def __post_init__(self) -> None:
+        self.x = np.asarray(self.x)
+        self.pos = np.asarray(self.pos)
+        if self.x.ndim != 2 or self.pos.ndim != 2:
+            raise ValueError(
+                f"GeneratedSlide expects (N, D) arrays; got x{self.x.shape} pos{self.pos.shape}. "
+                "For niche-shaped (B, N, D) cells use GeneratedNiches."
+            )
+
+    @property
+    def flat_x(self) -> np.ndarray:
+        """All generated cells as an ``(N, n_features)`` cloud (already flat)."""
+        return self.x
+
+    @property
+    def flat_pos(self) -> np.ndarray:
+        """All generated cells as an ``(N, coord)`` cloud (already flat)."""
+        return self.pos
+
+    def project(self, pca) -> GeneratedSlide:
+        """Project expression through a target ``pca`` into the shared basis (no-op if ``None``)."""
+        if pca is None:
+            return self
+        return GeneratedSlide(x=pca.transform(self.x), pos=self.pos)
+
+    @classmethod
+    def from_anndata(
+        cls,
+        adata_or_path,
+        *,
+        expr_key: str | None = None,
+        spatial_key: str = "spatial",
+    ) -> GeneratedSlide:
+        """Build a flat ``GeneratedSlide`` from a generated AnnData (one row per cell).
+
+        Reads expression from ``adata.X`` (or ``expr_key``) and coordinates from
+        ``obsm[spatial_key]`` — the same layout as :meth:`TargetSlide.from_anndata`, just for the
+        generated cells. No ``niche_id`` grouping is needed.
+        """
+        adata = read_anndata(adata_or_path)
+        return cls(x=slide_expression(adata, expr_key), pos=slide_coords(adata, spatial_key))

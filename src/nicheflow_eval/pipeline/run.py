@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from nicheflow_eval.contract import GeneratedNiches, TargetSlide
+from nicheflow_eval.contract import GeneratedNiches, GeneratedSlide, TargetSlide
 from nicheflow_eval.evaluate import ALL_GROUPS, evaluate
 
 
@@ -39,7 +39,7 @@ class GenerationOutput:
     """
 
     target: TargetSlide
-    generated: GeneratedNiches
+    generated: GeneratedNiches | GeneratedSlide
     classifier: object | None = None
 
 
@@ -64,7 +64,7 @@ class Generator(Protocol):
 class PipelineResult:
     metrics: dict
     target: TargetSlide
-    generated: GeneratedNiches
+    generated: GeneratedNiches | GeneratedSlide
 
 
 def from_generated_anndata(
@@ -73,30 +73,42 @@ def from_generated_anndata(
     *,
     ct_key: str | None = None,
     n_pcs: int | None = 50,
+    niche_key: str = "niche_id",
     target_kwargs: dict | None = None,
     generated_kwargs: dict | None = None,
 ) -> GenerationOutput:
     """Build a :class:`GenerationOutput` from a generated ``.h5ad`` and the raw target slide.
 
     The common path for a bring-your-own-model generator: your model writes generated cells as an
-    AnnData in **gene space** (same genes as the target), laid out like
-    :meth:`GeneratedNiches.from_anndata` expects. This fits one PCA on the target and projects the
-    generated cells through it, so both sides share a basis.
+    AnnData in **gene space** (same genes as the target). This fits one PCA on the target and
+    projects the generated cells through it, so both sides share a basis.
+
+    The generated layout is auto-detected: niche-shaped (:class:`GeneratedNiches`) if
+    ``obs[niche_key]`` is present, otherwise a flat whole-slide
+    :class:`GeneratedSlide` (``X`` + ``obsm['spatial']``). With a flat slide the niche metrics
+    (regression, concordance, ct_gap) are skipped.
 
     Args:
-        generated_adata_or_path: the generated cells (AnnData or path), niche layout.
+        generated_adata_or_path: the generated cells (AnnData or path).
         target_adata_or_path: the raw target slide (AnnData or path).
         ct_key: ``obs`` column with cell types on the target (enables the ``ct/*`` groups).
         n_pcs: PCs to fit on the target and project both sides into (``None`` keeps raw genes).
+        niche_key: ``obs`` column marking the niche layout (default ``"niche_id"``).
         target_kwargs / generated_kwargs: extra kwargs forwarded to the respective ``from_anndata``.
     """
+    from nicheflow_eval.data.anndata import read_anndata
+
     target = TargetSlide.from_anndata(
         target_adata_or_path, ct_key=ct_key, n_pcs=n_pcs, **(target_kwargs or {})
     )
-    generated = GeneratedNiches.from_anndata(
-        generated_adata_or_path, **(generated_kwargs or {})
-    ).project(target.pca)
-    return GenerationOutput(target=target, generated=generated)
+    gen_adata = read_anndata(generated_adata_or_path)
+    if niche_key in gen_adata.obs:
+        generated = GeneratedNiches.from_anndata(
+            gen_adata, niche_key=niche_key, **(generated_kwargs or {})
+        )
+    else:
+        generated = GeneratedSlide.from_anndata(gen_adata, **(generated_kwargs or {}))
+    return GenerationOutput(target=target, generated=generated.project(target.pca))
 
 
 def run_pipeline(

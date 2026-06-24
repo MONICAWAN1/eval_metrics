@@ -47,6 +47,22 @@ def target_adata(rng):
 
 
 @pytest.fixture
+def generated_slide_adata(target_adata, rng):
+    """A flat whole-slide generated AnnData: .X genes + obsm['spatial'], no niche_id."""
+    ad = pytest.importorskip("anndata")
+    import pandas as pd
+
+    n_genes = target_adata.n_vars
+    n = 250
+    pos = rng.uniform(0, 10, size=(n, 2)).astype("float32")
+    x = (rng.normal(size=(n, n_genes)) + 0.3 * pos[:, :1]).astype("float32")
+    adata = ad.AnnData(X=x)
+    adata.obsm["spatial"] = pos
+    adata.obs.index = pd.RangeIndex(n).astype(str)
+    return adata
+
+
+@pytest.fixture
 def generated_adata(generated_niches, rng):
     """A flat generated AnnData matching GeneratedNiches.from_anndata's layout."""
     ad = pytest.importorskip("anndata")

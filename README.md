@@ -38,24 +38,35 @@ No preprocessed pickle is required. Each slide is a plain AnnData with:
 | coordinates | `adata.obsm["spatial"]` | configurable via `spatial_key=` |
 | cell types | `adata.obs[ct_key]` | optional; needed by the classifier metrics |
 
-Generated cells are stored **flat** (one row per cell) with `obs["niche_id"]` grouping each niche's
-points (centroid first) and coords in `obsm["spatial"]`; paired ground-truth niches in
-`obsm["gt_x"]`/`obsm["gt_pos"]` and the paired real centroid's true label in `obs["gt_ct"]`.
+**Generated cells come in two shapes** — pick by what your model emits:
+
+- **`GeneratedSlide`** — a **flat** whole slide: `X` + `obsm["spatial"]`, one row per cell, exactly
+  like the target. For ordinary generative models. The label-free metrics (psd, spd, distribution,
+  c2st, moran) run on it; the niche metrics are skipped.
+- **`GeneratedNiches`** — **niche-shaped**: flat rows with `obs["niche_id"]` grouping each niche's
+  points (centroid first), coords in `obsm["spatial"]`; paired ground-truth in
+  `obsm["gt_x"]`/`obsm["gt_pos"]` and the paired real centroid label in `obs["gt_ct"]`. Required by
+  the niche metrics (regression, concordance, ct_gap).
 
 PCA is **not** assumed. Target and generated must share one feature space — either keep both as raw
-genes (same panel), or pass `n_pcs=` to fit one PCA on the target and project the generated cells
-through it:
+genes (same panel), or pass `n_pcs=` to fit one PCA on the target and `.project()` the generated
+cells through it:
 
 ```python
-from nicheflow_eval import TargetSlide, GeneratedNiches, evaluate
+from nicheflow_eval import TargetSlide, GeneratedSlide, GeneratedNiches, evaluate
 
 target = TargetSlide.from_anndata("target.h5ad", ct_key="class")        # raw genes + coords
-generated = GeneratedNiches.from_anndata("generated.h5ad")              # (B, N, D), centroid first
+
+# whole-slide model -> flat cells (niche metrics auto-skipped):
+generated = GeneratedSlide.from_anndata("generated.h5ad")               # (N, D)
+# OR niche-shaped cells (enables the niche metrics):
+generated = GeneratedNiches.from_anndata("generated.h5ad")             # (B, N, D), centroid first
+
 results = evaluate(target, generated)                                   # {test/group/metric: ...}
 
 # optional shared-PCA: fit on the target, project the generated cells into the same basis
 target = TargetSlide.from_anndata("target.h5ad", ct_key="class", n_pcs=50)
-generated = GeneratedNiches.from_anndata("generated.h5ad").project(target.pca)
+generated = GeneratedSlide.from_anndata("generated.h5ad").project(target.pca)
 ```
 
 ## Full pipeline (checkpoint → generated cells → metrics)
@@ -142,15 +153,18 @@ Groups whose inputs are missing are skipped automatically (no `gt_*` → skips r
 
 ## Metrics
 
-| Group | Keys | Needs |
-|---|---|---|
-| Pointwise regression | `x/{mse,mae}`, `pos/{mse,mae}` | matched `gt_*` |
-| Point/shape distances | `psd/{mean,max}`, `spd/{mean,max}` | — |
-| Distribution | `mmd2/{x,pos}`, `ot_w1/{x,pos}`, `ot_w2/{x,pos}` | `torch`, `pot` |
-| C2ST (label-free) | `c2st/{acc,auc,pos_acc,sig_*}` | `sklearn` |
-| Moran's I (label-free) | `moran/{mae,corr,real_mean,gen_mean}` | `squidpy` — over **all** generated cells vs the full real slide |
-| Cell-type concordance | `ct/{f1,acc,prop_kl,prop_tv,prop_jsd}` | classifier + paired real niches `gt_*` |
-| Classifier accuracy gap | `ct/{acc_real,acc_gen,acc_gap}` | classifier + paired niches `gt_*` + true labels `gt_ct` |
+The label-free groups run on **either** a flat `GeneratedSlide` or `GeneratedNiches`; the niche
+groups (regression, concordance, ct_gap) need `GeneratedNiches` and are auto-skipped for a flat slide.
+
+| Group | Keys | Shape | Needs |
+|---|---|---|---|
+| Pointwise regression | `x/{mse,mae}`, `pos/{mse,mae}` | niche | matched `gt_*` |
+| Point/shape distances | `psd/{mean,max}`, `spd/{mean,max}` | flat or niche | — |
+| Distribution | `mmd2/{x,pos}`, `ot_w1/{x,pos}`, `ot_w2/{x,pos}` | flat or niche | `torch`, `pot` |
+| C2ST (label-free) | `c2st/{acc,auc,pos_acc,sig_*}` | flat or niche | `sklearn` |
+| Moran's I (label-free) | `moran/{mae,corr,real_mean,gen_mean}` | flat or niche | `squidpy` — over **all** generated cells vs the full real slide |
+| Cell-type concordance | `ct/{f1,acc,prop_kl,prop_tv,prop_jsd}` | niche | classifier + paired real niches `gt_*` |
+| Classifier accuracy gap | `ct/{acc_real,acc_gen,acc_gap}` | niche | classifier + paired niches `gt_*` + true labels `gt_ct` |
 
 The **accuracy gap** runs the trained classifier on the real target niches and on the generated
 niches, each scored against the true centroid labels; a small `|acc_real - acc_gen|` means the
@@ -161,7 +175,7 @@ generated niches are as classifiable as the real ones. See `docs/metric_comparis
 
 ```
 src/nicheflow_eval/
-  contract.py          TargetSlide / GeneratedNiches (from_anndata) — the AnnData input contract
+  contract.py          TargetSlide / GeneratedSlide (flat) / GeneratedNiches — the AnnData contract
   data/anndata.py      read raw .h5ad -> arrays; optional shared PCA          [common, model-agnostic]
   data/dataclass.py    the internal niche pickle schema + loader
   evaluate.py          evaluate(target, generated) -> flat dict + standalone CLI
