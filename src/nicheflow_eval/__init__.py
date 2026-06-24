@@ -4,10 +4,15 @@ Inputs are **original AnnData (``.h5ad``) files** — raw gene expression + spat
 
 Standalone (evaluate cells you already generated)::
 
-    from nicheflow_eval import TargetSlide, GeneratedNiches, evaluate
+    from nicheflow_eval import TargetSlide, GeneratedSlide, GeneratedNiches, evaluate
 
     target = TargetSlide.from_anndata("target.h5ad", ct_key="class")   # raw genes + obsm['spatial']
+
+    # whole-slide model -> flat cells (label-free metrics; niche metrics skipped):
+    generated = GeneratedSlide.from_anndata("generated.h5ad")          # (N, D)
+    # OR NicheFlow-style microenvironments (enables the niche metrics too):
     generated = GeneratedNiches.from_anndata("generated.h5ad")         # (B, N, D), centroid first
+
     results = evaluate(target, generated)                              # {test/group/metric: value}
 
 Full pipeline (checkpoint + raw slides -> generate -> metrics). The generation step is a
@@ -27,7 +32,7 @@ Bring your own model: write a ``generator`` that returns a
 from a generated ``.h5ad``) — no NicheFlow needed.
 """
 
-from nicheflow_eval.contract import GeneratedNiches, TargetSlide
+from nicheflow_eval.contract import GeneratedNiches, GeneratedSlide, TargetSlide
 from nicheflow_eval.evaluate import ALL_GROUPS, evaluate
 
-__all__ = ["ALL_GROUPS", "GeneratedNiches", "TargetSlide", "evaluate"]
+__all__ = ["ALL_GROUPS", "GeneratedNiches", "GeneratedSlide", "TargetSlide", "evaluate"]

@@ -13,7 +13,8 @@ from a checkpoint + raw slides, see :func:`nicheflow_eval.pipeline.run.run_pipel
 
 from __future__ import annotations
 
-from nicheflow_eval.contract import GeneratedNiches, TargetSlide
+from nicheflow_eval.contract import GeneratedNiches, GeneratedSlide, TargetSlide
+from nicheflow_eval.data.anndata import read_anndata
 from nicheflow_eval.metrics.c2st import c2st_metrics
 from nicheflow_eval.metrics.classifier_gap import classifier_accuracy_gap
 from nicheflow_eval.metrics.concordance import cell_type_concordance
@@ -35,7 +36,7 @@ ALL_GROUPS = (
 
 def evaluate(
     target: TargetSlide,
-    generated: GeneratedNiches,
+    generated: GeneratedNiches | GeneratedSlide,
     *,
     classifier=None,
     classifier_spatial: bool = True,
@@ -58,19 +59,29 @@ def evaluate(
     (classifier accuracy gap real-vs-generated). The two classifier groups need a ``classifier``
     and the paired real niches ``generated.gt_*`` (``ct_gap`` also needs ``generated.gt_ct``).
     Pass a subset via ``groups`` to run only some.
+
+    ``generated`` may be a :class:`~nicheflow_eval.contract.GeneratedNiches` (niche-shaped) or a
+    flat :class:`~nicheflow_eval.contract.GeneratedSlide`. The label-free groups run on either; the
+    niche groups (``regression``, ``concordance``, ``ct_gap``) need ``GeneratedNiches`` and are
+    skipped for a flat slide.
     """
     out: dict[str, float] = {}
     skipped: list[str] = []
 
     if "regression" in groups:
-        if generated.gt_x is not None and generated.gt_pos is not None:
+        if (
+            getattr(generated, "gt_x", None) is not None
+            and getattr(generated, "gt_pos", None) is not None
+        ):
             out.update(
                 regression_metrics(
                     generated.x, generated.gt_x, generated.pos, generated.gt_pos, prefix=prefix
                 )
             )
         else:
-            skipped.append("regression (no matched ground-truth niches on `generated`)")
+            skipped.append(
+                "regression (needs niche-shaped `GeneratedNiches` with matched `gt_x`/`gt_pos`)"
+            )
 
     if "psd" in groups:
         out.update(point_to_shape(generated.flat_pos, target.pos, prefix=prefix))
@@ -123,7 +134,11 @@ def evaluate(
         )
 
     if "concordance" in groups:
-        if classifier is not None and generated.gt_x is not None and generated.gt_pos is not None:
+        if (
+            classifier is not None
+            and getattr(generated, "gt_x", None) is not None
+            and getattr(generated, "gt_pos", None) is not None
+        ):
             out.update(
                 cell_type_concordance(
                     generated.x,
@@ -145,9 +160,9 @@ def evaluate(
     if "ct_gap" in groups:
         if (
             classifier is not None
-            and generated.gt_x is not None
-            and generated.gt_pos is not None
-            and generated.gt_ct is not None
+            and getattr(generated, "gt_x", None) is not None
+            and getattr(generated, "gt_pos", None) is not None
+            and getattr(generated, "gt_ct", None) is not None
         ):
             out.update(
                 classifier_accuracy_gap(
@@ -204,15 +219,25 @@ def build_spatial_classifier(
     return clf
 
 
-def _load_generated(path: str) -> GeneratedNiches:
-    """Load generated cells from an ``.npz`` (x/pos/gt_x/gt_pos/gt_ct) or a flat ``.h5ad``."""
+def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiches | GeneratedSlide:
+    """Load generated cells, auto-detecting niche-shaped vs flat.
+
+    ``.h5ad``: niche-shaped if ``obs[niche_key]`` is present, else a flat ``GeneratedSlide``.
+    ``.npz``: niche-shaped if ``x`` is 3-D ``(B, N, D)`` (optionally with ``gt_x``/``gt_pos``/
+    ``gt_ct``), else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``.
+    """
     if str(path).endswith(".h5ad"):
-        return GeneratedNiches.from_anndata(path)
+        adata = read_anndata(path)
+        if niche_key in adata.obs:
+            return GeneratedNiches.from_anndata(adata, niche_key=niche_key)
+        return GeneratedSlide.from_anndata(adata)
     import numpy as np
 
     npz = np.load(path)
-    extra = {k: npz[k] for k in ("gt_x", "gt_pos", "gt_ct") if k in npz}
-    return GeneratedNiches(x=npz["x"], pos=npz["pos"], **extra)
+    if npz["x"].ndim == 3:
+        extra = {k: npz[k] for k in ("gt_x", "gt_pos", "gt_ct") if k in npz}
+        return GeneratedNiches(x=npz["x"], pos=npz["pos"], **extra)
+    return GeneratedSlide(x=npz["x"], pos=npz["pos"])
 
 
 def _main() -> None:
@@ -227,8 +252,9 @@ def _main() -> None:
     ap.add_argument(
         "--generated",
         required=True,
-        help="generated cells: .npz with arrays x (B,N,P), pos (B,N,P) [+ gt_x, gt_pos, gt_ct], "
-        "or a flat .h5ad produced by the pipeline",
+        help="generated cells. Niche-shaped: .npz with x (B,N,P), pos (B,N,P) "
+        "[+ gt_x/gt_pos/gt_ct] or an .h5ad with obs['niche_id']. Flat (whole-slide): .npz with "
+        "2-D x/pos, or an .h5ad with X + obsm['spatial'] (niche metrics are then skipped).",
     )
     ap.add_argument(
         "--classifier", default=None, help="optional classifier .ckpt (enables the ct/* groups)"
@@ -288,7 +314,10 @@ def _main() -> None:
     skipped = res.pop("_skipped")
     rows = sorted(res.items())
     print(f"target: {target.x.shape[0]} cells, {target.x.shape[1]} features")
-    print(f"generated: {generated.x.shape[0]} niches x {generated.x.shape[1]} points")
+    if generated.x.ndim == 3:
+        print(f"generated: {generated.x.shape[0]} niches x {generated.x.shape[1]} points")
+    else:
+        print(f"generated: {generated.x.shape[0]} cells, {generated.x.shape[1]} feats (flat slide)")
     for k, v in rows:
         print(f"{k:24s} {v:.4f}")
     if skipped:
