@@ -1,47 +1,43 @@
-"""paired-slides-eval — standalone evaluation metrics for spatial single-cell generation.
+"""paired-slides-eval — evaluation metrics for spatial single-cell generation.
 
-Inputs are **original AnnData (``.h5ad``) files** — raw gene expression + spatial coordinates.
+This is an **evaluation** library. It is model-agnostic: you bring a real **target slide** and the
+**generated cells** your model produced (both as AnnData / arrays), and it computes the metric
+suite. It knows nothing about how you generated — generation lives in *your* code, where your model
+is. (An optional integrated-generation layer exists for models that ship an adapter; see below.)
 
-Standalone (evaluate cells you already generated)::
+The one-call front door — evaluate two files (do this right after your own pipeline samples)::
 
-    from paired_slides_eval import TargetSlide, GeneratedSlide, GeneratedNiches, evaluate
+    from paired_slides_eval import evaluate_files
 
-    target = TargetSlide.from_anndata("target.h5ad", ct_key="class")   # raw genes + obsm['spatial']
+    metrics = evaluate_files(
+        "target.h5ad",        # real slide: raw genes + obsm['spatial']
+        "generated.h5ad",     # your model's output (flat X+coords, or niche-shaped)
+        ct_key="class",       # enables the classifier metrics (optional)
+        n_pcs=50,             # shared PCA so both sides live in one space
+    )                         # -> {test/group/metric: value}
 
-    # whole-slide model -> flat cells (label-free + classifier metrics; only regression skipped):
-    generated = GeneratedSlide.from_anndata("generated.h5ad")          # (N, D)
-    # OR NicheFlow-style microenvironments (model-supplied paired niches; enables regression too):
-    generated = GeneratedNiches.from_anndata("generated.h5ad")         # (B, N, D), centroid first
+Or build the inputs explicitly and call :func:`~paired_slides_eval.evaluate.evaluate`::
 
-    results = evaluate(target, generated)                              # {test/group/metric: value}
+    from paired_slides_eval import TargetSlide, GeneratedSlide, evaluate
 
-Full pipeline (checkpoint + raw slides -> generate -> metrics). The generation step is a
-pluggable blackbox: pass any ``generator`` implementing the
+    target = TargetSlide.from_anndata("target.h5ad", ct_key="class", n_pcs=50)
+    generated = GeneratedSlide.from_anndata("generated.h5ad").project(target.pca)
+    metrics = evaluate(target, generated)
+
+Generated cells come in two shapes: a flat :class:`GeneratedSlide` (``X`` + coords, for whole-slide
+models) or a niche-shaped :class:`GeneratedNiches` (``obs['niche_id']``, for microenvironment
+models). The label-free metrics run on either; see :func:`~paired_slides_eval.evaluate.evaluate`.
+
+Optional — integrated generation. If a model ships a ``generator`` adapter you can also run
+generate + evaluate from here; this is a convenience, not the core. See
+:mod:`paired_slides_eval.pipeline` (``run_pipeline``) and :mod:`paired_slides_eval.generate`
+(the standalone generate CLI). The bundled NicheFlow adapter (``[nicheflow]`` extra) is one such
+generator; bring your own by implementing the
 :class:`~paired_slides_eval.pipeline.Generator` protocol.
-The bundled NicheFlow adapter (needs the ``[pipeline]`` extra) is one such generator::
-
-    from paired_slides_eval.pipeline import run_pipeline
-    from paired_slides_eval.adapters.nicheflow import nicheflow_generator
-
-    res = run_pipeline(
-        "source.h5ad", "target.h5ad", "flow.ckpt",
-        generator=nicheflow_generator, classifier_h5ad="clf.h5ad",
-    )
-
-Bring your own model: write a ``generator`` that returns a
-:class:`~paired_slides_eval.pipeline.GenerationOutput` (``from_generated_anndata`` does this in
-one line from a generated ``.h5ad``) — no NicheFlow needed.
-
-Generate and evaluate as **separate steps** (generate once, evaluate many times) via the
-model-agnostic generate entry point :mod:`paired_slides_eval.generate`::
-
-    python -m paired_slides_eval.generate --generator mypkg.mymodel:my_generator \\
-        --source source.h5ad --target target.h5ad --checkpoint flow.ckpt --generated_out gen.h5ad
-    python -m paired_slides_eval.evaluate --target target.h5ad --generated gen.h5ad
 """
 
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide, TargetSlide
-from paired_slides_eval.evaluate import ALL_GROUPS, evaluate
+from paired_slides_eval.evaluate import ALL_GROUPS, evaluate, evaluate_files
 from paired_slides_eval.generate import generate_cells, write_generated
 
 __all__ = [
@@ -50,6 +46,7 @@ __all__ = [
     "GeneratedSlide",
     "TargetSlide",
     "evaluate",
+    "evaluate_files",
     "generate_cells",
     "write_generated",
 ]

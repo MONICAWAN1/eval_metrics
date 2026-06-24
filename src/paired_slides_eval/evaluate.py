@@ -219,6 +219,58 @@ def evaluate(
     return out
 
 
+def evaluate_files(
+    target,
+    generated,
+    *,
+    ct_key: str | None = None,
+    n_pcs: int | None = None,
+    classifier=None,
+    groups: tuple[str, ...] = ALL_GROUPS,
+    expr_key: str | None = None,
+    spatial_key: str = "spatial",
+    seed: int = 0,
+    **evaluate_kwargs,
+) -> dict:
+    """Evaluate generated cells against a target slide straight from files — the one-call front door.
+
+    This is the headline entry point for the common case: you generated cells with your own model
+    (in your own repo) and just want the metrics. It loads both sides, puts them in a shared feature
+    space, and runs :func:`evaluate` — no dataclasses to assemble by hand.
+
+    Args:
+        target: the target slide — a ``.h5ad`` (raw genes + ``obsm['spatial']``) or an ``AnnData``;
+            a ``.pkl`` is also accepted (a preprocessed-slide pickle, via
+            :meth:`~paired_slides_eval.contract.TargetSlide.from_dataclass`).
+        generated: the generated cells as a path — ``.h5ad`` (flat ``X``+``obsm['spatial']`` or
+            niche-shaped with ``obs['niche_id']``), ``.npz``, or ``.pkl``.
+        ct_key: ``obs`` column with cell types on the target (needed for the ``ct/*`` metrics).
+        n_pcs: fit a PCA on the target to ``n_pcs`` and project both sides into it so they share a
+            basis. Leave ``None`` only if target and generated are already in the same space.
+        classifier: a ready classifier module, or a path to a ``.ckpt`` (enables the ``ct/*``
+            metrics); ``None`` skips them.
+        groups / seed / **evaluate_kwargs: forwarded to :func:`evaluate`.
+
+    Returns the flat ``{prefix/group/metric: value}`` dict (plus ``_skipped`` / ``_notes``).
+    """
+    if isinstance(target, str) and target.endswith(".pkl"):
+        target_slide = TargetSlide.from_dataclass(target)
+    else:
+        target_slide = TargetSlide.from_anndata(
+            target, ct_key=ct_key, expr_key=expr_key, spatial_key=spatial_key, n_pcs=n_pcs
+        )
+
+    gen = _load_generated(generated).project(target_slide.pca)
+
+    clf = classifier
+    if isinstance(classifier, str):
+        clf = build_spatial_classifier(
+            classifier, target_slide.x.shape[1], target_slide.n_classes
+        )
+
+    return evaluate(target_slide, gen, classifier=clf, groups=groups, seed=seed, **evaluate_kwargs)
+
+
 def _has_paired_niches(generated) -> bool:
     """True if ``generated`` carries the paired real microenvironments the classifier groups need."""
     return (
