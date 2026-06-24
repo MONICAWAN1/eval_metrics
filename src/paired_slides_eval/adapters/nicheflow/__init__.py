@@ -12,6 +12,7 @@ for users who want to drive the steps by hand.
 
 from paired_slides_eval.adapters.nicheflow.generate import GenerationResult, generate
 from paired_slides_eval.adapters.nicheflow.generator import (
+    NicheFlowGenerator,
     nicheflow_generator,
     target_from_dataclass,
 )
@@ -23,6 +24,7 @@ from paired_slides_eval.adapters.nicheflow.preprocess import (
 )
 
 __all__ = [
+    "NicheFlowGenerator",
     "nicheflow_generator",
     "target_from_dataclass",
     "generate",

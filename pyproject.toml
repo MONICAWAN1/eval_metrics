@@ -36,14 +36,18 @@ classifier = [
     "matplotlib>=3.8",
     "pillow>=10.0",
 ]
+# Configuration-driven generation (`paired_slides_eval.generate` / `paired_slides_eval.pipeline`):
+# Hydra selects and constructs a generation adapter from config. Pure evaluation does not need this.
+pipeline = [
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+]
 # The bundled NicheFlow generation adapter (`paired_slides_eval.adapters.nicheflow`). The NicheFlow
 # flow model itself is not on PyPI — also `pip install -e ../nicheflow_mba`.
 nicheflow = [
     "scanpy>=1.10",           # normalize_total/log1p/pca in the niche preprocessing
     "tqdm>=4.66",
 ]
-# Back-compat alias for the old `[pipeline]` extra (now `[nicheflow]`).
-pipeline = ["paired-slides-eval[nicheflow]"]
 wandb = ["wandb>=0.16"]       # W&B logging for classifier training
 
 [dependency-groups]

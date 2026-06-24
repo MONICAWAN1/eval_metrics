@@ -1,12 +1,13 @@
-"""The model-agnostic generate entry point: generator resolution + write/round-trip."""
+"""Generation orchestration: generator instances, generate_cells, write_generated round-trips."""
 
 import numpy as np
 import pytest
 
 from paired_slides_eval import generate_cells, write_generated
+from paired_slides_eval.adapters.base import BaseGenerator
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide
 from paired_slides_eval.evaluate import _load_generated
-from paired_slides_eval.generate import _coerce, resolve_generator
+from paired_slides_eval.pipeline import run_pipeline
 from paired_slides_eval.pipeline.run import GenerationOutput
 
 
@@ -26,55 +27,21 @@ def _slide_generator(*, source, target, checkpoint, **kw):
     )
 
 
-# --- resolve_generator -------------------------------------------------------
+class _SlideGenerator(BaseGenerator):
+    """A BaseGenerator subclass (the shape a Hydra `_target_` instantiates)."""
 
-def test_resolve_generator_passthrough_callable():
-    assert resolve_generator(_slide_generator) is _slide_generator
+    def __init__(self, n_cells=10, n_feat=5):
+        self.n_cells = n_cells
+        self.n_feat = n_feat
 
-
-def test_resolve_generator_dotted_path():
-    # any importable callable resolves; write_generated is a convenient real target
-    assert resolve_generator("paired_slides_eval.generate:write_generated") is write_generated
-
-
-@pytest.mark.parametrize("spec", ["nocolon", "paired_slides_eval.generate:does_not_exist"])
-def test_resolve_generator_bad_spec_raises(spec):
-    with pytest.raises((ValueError, AttributeError)):
-        resolve_generator(spec)
-
-
-def test_resolve_generator_non_callable_raises():
-    with pytest.raises(TypeError):
-        resolve_generator("paired_slides_eval.generate:__doc__")  # a str, not callable
-
-
-def test_resolve_generator_registry_name():
-    from paired_slides_eval.pipeline.run import GENERATOR_REGISTRY
-
-    GENERATOR_REGISTRY["__test_fake__"] = "paired_slides_eval.generate:write_generated"
-    try:
-        assert resolve_generator("__test_fake__") is write_generated
-    finally:
-        GENERATOR_REGISTRY.pop("__test_fake__", None)
-
-
-def test_nicheflow_registered_by_name():
-    from paired_slides_eval.pipeline import GENERATOR_REGISTRY
-
-    assert "nicheflow" in GENERATOR_REGISTRY  # resolvable as --generator nicheflow
-
-
-# --- _coerce -----------------------------------------------------------------
-
-@pytest.mark.parametrize(
-    "text,expected",
-    [("none", None), ("null", None), ("true", True), ("false", False),
-     ("50", 50), ("0.15", 0.15), ("euler", "euler")],
-)
-def test_coerce(text, expected):
-    assert _coerce(text) == expected
-    if isinstance(expected, int) and not isinstance(expected, bool):
-        assert isinstance(_coerce(text), int)
+    def __call__(self, *, source, target, checkpoint, **kw):
+        rng = np.random.default_rng(2)
+        return GenerationOutput(
+            target=None,
+            generated=GeneratedSlide(
+                x=rng.random((self.n_cells, self.n_feat)), pos=rng.random((self.n_cells, 2))
+            ),
+        )
 
 
 # --- write_generated round-trips through the eval loader ---------------------
@@ -102,7 +69,7 @@ def test_unsupported_extension_raises(tmp_path):
         write_generated(g, str(tmp_path / "g.txt"))
 
 
-# --- generate_cells orchestration -------------------------------------------
+# --- generate_cells / run_pipeline accept a callable or a BaseGenerator instance ---
 
 def test_generate_cells_out_none_writes_nothing(tmp_path):
     res = generate_cells("s", "t", "ckpt", generator=_slide_generator, out=None)
@@ -119,3 +86,26 @@ def test_generate_cells_forwards_kwargs():
 
     generate_cells("s", "t", "ckpt", generator=_echo, n_pcs=50, radius=0.15)
     assert seen == {"n_pcs": 50, "radius": 0.15}
+
+
+def test_base_generator_instance_works(tmp_path):
+    gen = _SlideGenerator(n_cells=8, n_feat=5)  # what instantiate(cfg.generator) yields
+    out = generate_cells("s", "t", "ckpt", generator=gen, out=str(tmp_path / "g.h5ad"))
+    assert out.generated.x.shape == (8, 5)
+    assert isinstance(_load_generated(str(tmp_path / "g.h5ad")), GeneratedSlide)
+
+
+def test_run_pipeline_accepts_generator_instance(real_slide):
+    from paired_slides_eval import TargetSlide
+
+    class _G(BaseGenerator):
+        def __call__(self, *, source, target, checkpoint, **kw):
+            rng = np.random.default_rng(3)
+            tgt = TargetSlide(x=real_slide["x"], pos=real_slide["pos"],
+                              ct=real_slide["ct"], n_classes=real_slide["n_classes"])
+            gen = GeneratedSlide(x=rng.random((40, real_slide["x"].shape[1])),
+                                 pos=rng.uniform(0, 10, size=(40, 2)))
+            return GenerationOutput(target=tgt, generated=gen)
+
+    res = run_pipeline("s", "t", "ckpt", generator=_G(), groups=("psd", "spd"))
+    assert "test/psd/mean" in res.metrics

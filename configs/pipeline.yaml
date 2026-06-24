@@ -1,0 +1,21 @@
+# @package _global_
+# One-shot generate + evaluate: `python -m paired_slides_eval.pipeline`.
+# Select the model with `generator=<name>` (configs/generator/<name>.yaml).
+defaults:
+  - _self_
+  - generator: nicheflow
+  - hydra: default
+
+# Inputs (override on the command line).
+source: ???       # source slide .h5ad (raw genes + obsm['spatial'])
+target: ???       # target slide .h5ad to generate
+checkpoint: ???   # trained model checkpoint, passed to the generator
+
+# Evaluation.
+classifier: null  # optional classifier .ckpt enabling the ct/* groups
+groups: null      # subset of metric groups (null -> all)
+seed: 0
+
+# Optional outputs.
+generated_out: null  # also write the generated cells (.h5ad or .npz)
+out: null            # write a metric,value CSV

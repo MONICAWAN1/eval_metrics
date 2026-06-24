@@ -9,24 +9,24 @@ To evaluate cells you generated elsewhere, skip this and use
 :func:`paired_slides_eval.evaluate.evaluate` directly.
 """
 
+from paired_slides_eval.pipeline.io import write_generated
 from paired_slides_eval.pipeline.run import (
-    GENERATOR_REGISTRY,
     GenerationOutput,
     Generator,
     PipelineResult,
     from_generated_anndata,
     from_generated_arrays,
-    resolve_generator,
+    generate_cells,
     run_pipeline,
 )
 
 __all__ = [
-    "GENERATOR_REGISTRY",
     "Generator",
     "GenerationOutput",
     "PipelineResult",
     "from_generated_anndata",
     "from_generated_arrays",
-    "resolve_generator",
+    "generate_cells",
     "run_pipeline",
+    "write_generated",
 ]

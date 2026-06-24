@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from paired_slides_eval.adapters.base import BaseGenerator
 from paired_slides_eval.adapters.nicheflow.generate import generate
 from paired_slides_eval.adapters.nicheflow.preprocess import (
     preprocess_classifier_slide,
@@ -49,84 +50,104 @@ def target_from_dataclass(ds, timepoint: str, n_pcs: int | None = None) -> Targe
     return TargetSlide(x=x, pos=pos, ct=ct, n_classes=len(ds.ct_to_int), pca=None)
 
 
-def nicheflow_generator(
-    *,
-    source,
-    target,
-    checkpoint: str,
-    classifier_h5ad=None,
-    classifier_ckpt: str | None = None,
-    n_pcs: int = 50,
-    cell_type_column: str = "class",
-    radius: float = 0.15,
-    dx: float = 0.15,
-    dy: float = 0.2,
-    device: str = "cpu",
-    num_steps: int = 20,
-    solver: str = "euler",
-    variant: str = "cfm",
-    n_slices: int | None = None,
-    generated_out=None,
-    classifier_train_kwargs: dict | None = None,
-) -> GenerationOutput:
-    """Preprocess -> generate -> (train/load classifier) for NicheFlow.
+class NicheFlowGenerator(BaseGenerator):
+    """NicheFlow generation adapter.
 
-    Returns a ``GenerationOutput`` ready for :func:`paired_slides_eval.pipeline.run.run_pipeline`.
+    Preprocesses the source+target pair into NicheFlow's niche scaffolding (shared PCA, per-slide
+    coordinate standardization, radius graph + grid subsample), samples the flow to produce the
+    target niches, and optionally trains or loads the spatial classifier for the ``ct/*`` groups.
+    The generated cells and the target both live in the standardized ``X_pca`` space, so they are
+    directly comparable.
 
-    Args:
-        source / target: source and target slides (raw genes + ``obsm['spatial']``; AnnData/path).
-        checkpoint: trained flow checkpoint.
+    Construction parameters (supplied by ``configs/generator/nicheflow.yaml``):
+        n_pcs: components for the shared PCA.
+        cell_type_column: ``obs`` column holding cell-type labels.
+        radius / dx / dy: radius-graph and grid-subsample resolution.
+        device: torch device for preprocessing, sampling, and training.
+        num_steps / solver / variant / n_slices: flow sampler settings (must match the checkpoint).
         classifier_h5ad: held-out slide to train the spatial classifier on (enables ``ct/*``).
-            Projected into the source+target PCA basis + label space.
         classifier_ckpt: load a pre-trained spatial classifier instead of training one.
-        n_pcs: PCs for the shared PCA. cell_type_column: ``obs`` column with cell types.
-        radius/dx/dy: niche radius graph + grid-subsample resolution.
-        num_steps/solver/variant/n_slices: flow sampler settings (must match the checkpoint).
-        generated_out: optional path to write the generated cells as ``.h5ad``.
+        classifier_train_kwargs: extra keyword arguments for classifier training.
     """
-    ds_pair, pre = preprocess_pair(
-        source,
-        target,
-        n_pcs=n_pcs,
-        cell_type_column=cell_type_column,
-        radius=radius,
-        dx=dx,
-        dy=dy,
-        device=device,
-    )
-    target_tp = ds_pair.timepoints_ordered[-1]
-    target_slide = target_from_dataclass(ds_pair, target_tp)
 
-    gen_result = generate(
-        ds_pair,
-        checkpoint,
-        target_timepoint=target_tp,
-        n_slices=n_slices,
-        num_steps=num_steps,
-        solver=solver,
-        variant=variant,
-        device=device,
-    )
-    if generated_out is not None:
-        gen_result.to_anndata().write_h5ad(str(generated_out))
+    def __init__(
+        self,
+        *,
+        n_pcs: int = 50,
+        cell_type_column: str = "class",
+        radius: float = 0.15,
+        dx: float = 0.15,
+        dy: float = 0.2,
+        device: str = "cpu",
+        num_steps: int = 20,
+        solver: str = "euler",
+        variant: str = "cfm",
+        n_slices: int | None = None,
+        classifier_h5ad=None,
+        classifier_ckpt: str | None = None,
+        classifier_train_kwargs: dict | None = None,
+    ) -> None:
+        self.n_pcs = n_pcs
+        self.cell_type_column = cell_type_column
+        self.radius = radius
+        self.dx = dx
+        self.dy = dy
+        self.device = device
+        self.num_steps = num_steps
+        self.solver = solver
+        self.variant = variant
+        self.n_slices = n_slices
+        self.classifier_h5ad = classifier_h5ad
+        self.classifier_ckpt = classifier_ckpt
+        self.classifier_train_kwargs = classifier_train_kwargs or {}
 
-    classifier = _resolve_classifier(
-        classifier_ckpt=classifier_ckpt,
-        classifier_h5ad=classifier_h5ad,
-        base_preprocessor=pre,
-        n_pcs=target_slide.x.shape[1],
-        n_classes=target_slide.n_classes,
-        cell_type_column=cell_type_column,
-        radius=radius,
-        dx=dx,
-        dy=dy,
-        device=device,
-        train_kwargs=classifier_train_kwargs or {},
-    )
+    def __call__(self, *, source, target, checkpoint, **_) -> GenerationOutput:
+        ds_pair, pre = preprocess_pair(
+            source,
+            target,
+            n_pcs=self.n_pcs,
+            cell_type_column=self.cell_type_column,
+            radius=self.radius,
+            dx=self.dx,
+            dy=self.dy,
+            device=self.device,
+        )
+        target_tp = ds_pair.timepoints_ordered[-1]
+        target_slide = target_from_dataclass(ds_pair, target_tp)
 
-    return GenerationOutput(
-        target=target_slide, generated=gen_result.to_generated_niches(), classifier=classifier
-    )
+        gen_result = generate(
+            ds_pair,
+            checkpoint,
+            target_timepoint=target_tp,
+            n_slices=self.n_slices,
+            num_steps=self.num_steps,
+            solver=self.solver,
+            variant=self.variant,
+            device=self.device,
+        )
+
+        classifier = _resolve_classifier(
+            classifier_ckpt=self.classifier_ckpt,
+            classifier_h5ad=self.classifier_h5ad,
+            base_preprocessor=pre,
+            n_pcs=target_slide.x.shape[1],
+            n_classes=target_slide.n_classes,
+            cell_type_column=self.cell_type_column,
+            radius=self.radius,
+            dx=self.dx,
+            dy=self.dy,
+            device=self.device,
+            train_kwargs=self.classifier_train_kwargs,
+        )
+
+        return GenerationOutput(
+            target=target_slide, generated=gen_result.to_generated_niches(), classifier=classifier
+        )
+
+
+def nicheflow_generator(*, source, target, checkpoint, **kwargs) -> GenerationOutput:
+    """Functional wrapper around :class:`NicheFlowGenerator` (kept for the Python API)."""
+    return NicheFlowGenerator(**kwargs)(source=source, target=target, checkpoint=checkpoint)
 
 
 def _resolve_classifier(

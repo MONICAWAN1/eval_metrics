@@ -18,12 +18,13 @@ Optional extras:
 
 ```bash
 pip install -e ".[classifier]"   # + the cell-type-classifier training stack (for the ct/* metrics)
+pip install -e ".[pipeline]"     # + Hydra, for configuration-driven generation
 pip install -e ".[nicheflow]"    # + the bundled NicheFlow generation adapter
 pip install -e ".[wandb]"        # + Weights & Biases logging for classifier training
 ```
 
-The bundled NicheFlow adapter also needs the `nicheflow` package (not on PyPI):
-`pip install -e ../nicheflow_mba`.
+Running the bundled NicheFlow adapter needs `[pipeline,nicheflow]` plus the `nicheflow` package
+(not on PyPI): `pip install -e ../nicheflow_mba`.
 
 ## Quickstart — evaluate two files
 
@@ -149,55 +150,65 @@ point `python -m paired_slides_eval.classifier.train`).
 
 ## Optional: integrated generation
 
-If only a trained checkpoint is provided, the package can generate cells based on the checkpoint
-when it has the model's code (a `generator` adapter).
+Given a trained checkpoint and the model's code, the package can generate cells and evaluate them in
+one step. Generation is configuration-driven (Hydra): a generation **adapter** wraps a model behind
+the `BaseGenerator` contract, and a config selects and constructs it via `_target_`. This path
+requires the `[pipeline]` extra.
 
-A **generator** is any callable implementing the `Generator` protocol — it turns raw slides + a
-checkpoint into a comparable `(target, generated)` pair:
-
-```python
-def my_generator(*, source, target, checkpoint, **kwargs) -> GenerationOutput: ...
-```
-
-Define this in your code repo for the model. Two one-line helpers build the return value:
-`from_generated_arrays` if the model returns arrays in memory, or `from_generated_anndata` if it
-writes a gene-space `.h5ad`. Both auto-reconcile the feature space (gene-space cells are projected;
-already-PCA cells pass through), so a model that samples in PCA/latent space works too — pass a
-`TargetSlide` already in that basis:
-
-```python
-from paired_slides_eval.pipeline import run_pipeline, from_generated_arrays
-from my_model import sample                                   
-
-def my_generator(*, source, target, checkpoint, ct_key="class", n_pcs=50, **_):
-    x, pos = sample(source, target, checkpoint)               # generation code from model repo
-    return from_generated_arrays(x, pos, target, ct_key=ct_key, n_pcs=n_pcs)
-
-res = run_pipeline("source.h5ad", "target.h5ad", "model.ckpt", generator=my_generator)
-print(res.metrics)
-```
-
-Or run the whole thing from one command — the pipeline CLI is model-agnostic (`--generator` takes a
-registry name or a `module.path:callable` spec; model-specific options go through `--gen-kwarg`):
+Run generation, then evaluate:
 
 ```bash
-python -m paired_slides_eval.pipeline --generator mypkg.mymodel:my_generator \
-  --source source.h5ad --target target.h5ad --checkpoint model.ckpt \
-  --gen-kwarg n_pcs=50 --out results.csv
+python -m paired_slides_eval.generate \
+  generator=nicheflow \
+  source=source.h5ad target=target.h5ad checkpoint=model.ckpt generated_out=generated.h5ad
+python -m paired_slides_eval.evaluate --target target.h5ad --generated generated.h5ad
 ```
 
-Or keep generation and evaluation as two separate steps:
+Or generate and evaluate in one command:
 
 ```bash
-python -m paired_slides_eval.generate --generator mypkg.mymodel:my_generator \
-  --source source.h5ad --target target.h5ad --checkpoint model.ckpt --generated_out gen.h5ad
-python -m paired_slides_eval.evaluate --target target.h5ad --generated gen.h5ad
+python -m paired_slides_eval.pipeline \
+  generator=nicheflow \
+  source=source.h5ad target=target.h5ad checkpoint=model.ckpt \
+  classifier=classifier.ckpt out=results.csv
 ```
 
-The bundled **NicheFlow** adapter (`pip install -e ".[nicheflow]"`) is registered by name — use
-`--generator nicheflow` (or `generator="nicheflow"` in `run_pipeline`), or the
-`python -m paired_slides_eval.pipeline` CLI. Register your own model the same way by adding it to
-`paired_slides_eval.pipeline.GENERATOR_REGISTRY`.
+Per-run parameter overrides use Hydra syntax, e.g. `generator.n_pcs=50 generator.radius=0.2`.
+
+### Adding a model
+
+1. Add an adapter under `src/paired_slides_eval/adapters/<name>/`: a `BaseGenerator` subclass whose
+   constructor takes the model's parameters and whose call returns a `GenerationOutput`.
+
+   ```python
+   from paired_slides_eval.adapters.base import BaseGenerator
+   from paired_slides_eval.pipeline import from_generated_arrays
+   from my_model import sample                      # the model package, imported here
+
+   class MyGenerator(BaseGenerator):
+       def __init__(self, n_pcs=50):
+           self.n_pcs = n_pcs
+
+       def __call__(self, *, source, target, checkpoint, **_):
+           x, pos = sample(source, target, checkpoint)
+           return from_generated_arrays(x, pos, target, n_pcs=self.n_pcs)
+   ```
+
+   `from_generated_arrays` (and `from_generated_anndata`) reconcile the feature space automatically:
+   gene-space cells are projected through the target PCA; cells already in PCA space are passed
+   through unchanged (supply a `TargetSlide` already in that basis).
+
+2. Add `configs/generator/<name>.yaml` pointing `_target_` at the class:
+
+   ```yaml
+   _target_: paired_slides_eval.adapters.<name>.MyGenerator
+   n_pcs: 50
+   ```
+
+3. Select it with `generator=<name>`.
+
+For library use, a `BaseGenerator` instance (or any matching callable) is accepted directly:
+`run_pipeline("source.h5ad", "target.h5ad", "model.ckpt", generator=MyGenerator())`.
 
 ## Layout
 
@@ -208,10 +219,12 @@ src/paired_slides_eval/
   data/anndata.py      read raw .h5ad -> arrays; optional shared PCA        [general]
   metrics/             the metric kernels (distances, distribution, c2st, morans, concordance,
                        classifier_gap) — Moran/classifier niches built locally
-  pipeline/            optional generation orchestration: run_pipeline + Generator protocol
-  generate.py          optional generate-only entry point + CLI (resolve generator, write cells)
-  adapters/nicheflow/  the NicheFlow generator + its .pkl I/O  [extra: nicheflow]
+  pipeline/            generation orchestration: run_pipeline, the Generator/BaseGenerator contract,
+                       and generated-cell I/O                               [extra: pipeline]
+  generate.py          generate entry point (Hydra)                          [extra: pipeline]
+  adapters/base.py     BaseGenerator contract
+  adapters/nicheflow/  the NicheFlow adapter + its .pkl I/O                  [extra: nicheflow]
   classifier/          cell-type-classifier training for the ct/* metrics   [extra: classifier]
-configs/               hydra configs for classifier training
+configs/               hydra configs (generate / pipeline / generator / classifier training)
 tests/                 synthetic-data metric tests (no real data needed)
 ```

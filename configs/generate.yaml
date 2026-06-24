@@ -1,0 +1,15 @@
+# @package _global_
+# Generation entry point: `python -m paired_slides_eval.generate`.
+# Select the model with `generator=<name>` (configs/generator/<name>.yaml).
+defaults:
+  - _self_
+  - generator: nicheflow
+  - hydra: default
+
+# Inputs (override on the command line).
+source: ???       # source slide .h5ad (raw genes + obsm['spatial'])
+target: ???       # target slide .h5ad to generate
+checkpoint: ???   # trained model checkpoint, passed to the generator
+
+# Output: where to write the generated cells (.h5ad or .npz).
+generated_out: ???
