@@ -10,17 +10,21 @@ To evaluate cells you generated elsewhere, skip this and use
 """
 
 from paired_slides_eval.pipeline.run import (
+    GENERATOR_REGISTRY,
     GenerationOutput,
     Generator,
     PipelineResult,
     from_generated_anndata,
+    resolve_generator,
     run_pipeline,
 )
 
 __all__ = [
+    "GENERATOR_REGISTRY",
     "Generator",
     "GenerationOutput",
     "PipelineResult",
     "from_generated_anndata",
+    "resolve_generator",
     "run_pipeline",
 ]

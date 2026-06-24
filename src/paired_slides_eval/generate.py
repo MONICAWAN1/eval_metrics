@@ -10,9 +10,8 @@ The generator is the same blackbox contract the pipeline uses
 ``torch``/``nicheflow``/``scanpy`` itself — it only *orchestrates* (resolve the generator, call it,
 serialize the result); the model-specific imports live inside whichever generator you pick.
 
-From the CLI you select a generator by dotted path (``module.path:callable``) — this is required,
-the package favours no model. The bundled NicheFlow adapter
-(``paired_slides_eval.adapters.nicheflow:nicheflow_generator``) is one choice::
+From the CLI you select a generator (required — the package favours no model) by **registry name**
+(e.g. ``nicheflow``) or a ``module.path:callable`` spec pointing at your own model::
 
     python -m paired_slides_eval.generate \\
         --generator mypkg.mymodel:my_generator \\
@@ -30,34 +29,11 @@ from __future__ import annotations
 import numpy as np
 
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide
-from paired_slides_eval.pipeline.run import GenerationOutput
 
+# One generator-resolution path, shared with run_pipeline (callable / registry name / dotted path).
+from paired_slides_eval.pipeline.run import GenerationOutput, resolve_generator
 
-def resolve_generator(spec):
-    """Resolve a generator from a ``"module.path:callable"`` spec (or pass a callable through).
-
-    The dotted-path form lets a shell user point the CLI at *their own* model without any
-    packaging — e.g. ``mypkg.mymodel:my_generator``. A callable is returned unchanged so the
-    Python API can hand in a function directly.
-    """
-    if callable(spec):
-        return spec
-    if not isinstance(spec, str) or ":" not in spec:
-        raise ValueError(
-            f"Generator spec must be 'module.path:callable' (e.g. "
-            f"'paired_slides_eval.adapters.nicheflow:nicheflow_generator'); got {spec!r}."
-        )
-    import importlib
-
-    module_path, _, attr = spec.partition(":")
-    module = importlib.import_module(module_path)
-    try:
-        generator = getattr(module, attr)
-    except AttributeError as exc:
-        raise AttributeError(f"module {module_path!r} has no attribute {attr!r}.") from exc
-    if not callable(generator):
-        raise TypeError(f"{spec!r} resolved to a non-callable {type(generator).__name__}.")
-    return generator
+__all__ = ["generate_cells", "write_generated", "resolve_generator"]
 
 
 def write_generated(generated: GeneratedNiches | GeneratedSlide, path: str) -> str:
@@ -176,8 +152,7 @@ def _main() -> None:
     ap.add_argument(
         "--generator",
         required=True,
-        help="generator as 'module.path:callable' (e.g. the bundled "
-        "paired_slides_eval.adapters.nicheflow:nicheflow_generator)",
+        help="a registry name (e.g. 'nicheflow') or a 'module.path:callable' spec for your model",
     )
     ap.add_argument("--source", required=True, help="source slide .h5ad (raw genes + coords)")
     ap.add_argument("--target", required=True, help="target slide .h5ad to generate")

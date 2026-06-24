@@ -48,6 +48,22 @@ def test_resolve_generator_non_callable_raises():
         resolve_generator("paired_slides_eval.generate:__doc__")  # a str, not callable
 
 
+def test_resolve_generator_registry_name():
+    from paired_slides_eval.pipeline.run import GENERATOR_REGISTRY
+
+    GENERATOR_REGISTRY["__test_fake__"] = "paired_slides_eval.generate:write_generated"
+    try:
+        assert resolve_generator("__test_fake__") is write_generated
+    finally:
+        GENERATOR_REGISTRY.pop("__test_fake__", None)
+
+
+def test_nicheflow_registered_by_name():
+    from paired_slides_eval.pipeline import GENERATOR_REGISTRY
+
+    assert "nicheflow" in GENERATOR_REGISTRY  # resolvable as --generator nicheflow
+
+
 # --- _coerce -----------------------------------------------------------------
 
 @pytest.mark.parametrize(

@@ -60,6 +60,48 @@ class Generator(Protocol):
     def __call__(self, *, source, target, checkpoint: str, **kwargs) -> GenerationOutput: ...
 
 
+# Generators ship-able by short name. Adapters register here so callers can say ``"nicheflow"``
+# instead of the full dotted path. Resolution is lazy — listing a name imports nothing.
+GENERATOR_REGISTRY: dict[str, str] = {
+    "nicheflow": "paired_slides_eval.adapters.nicheflow:nicheflow_generator",
+}
+
+
+def resolve_generator(spec):
+    """Resolve a generator from a callable, a registry name, or a ``"module.path:callable"`` spec.
+
+    This is the single generator-resolution path shared by :func:`run_pipeline`,
+    :func:`paired_slides_eval.generate.generate_cells`, and both CLIs. A callable is returned
+    unchanged; a registry name (see :data:`GENERATOR_REGISTRY`, e.g. ``"nicheflow"``) maps to its
+    dotted path; a ``"module.path:callable"`` string is imported. The import is lazy, so a model's
+    deps are only needed when its generator is actually used.
+    """
+    if callable(spec):
+        return spec
+    if not isinstance(spec, str):
+        raise ValueError(
+            f"Generator must be a callable, a registry name {sorted(GENERATOR_REGISTRY)}, or a "
+            f"'module.path:callable' spec; got {type(spec).__name__}."
+        )
+    target = GENERATOR_REGISTRY.get(spec, spec)
+    if ":" not in target:
+        raise ValueError(
+            f"Unknown generator {spec!r}. Use a registry name {sorted(GENERATOR_REGISTRY)}, a "
+            f"'module.path:callable' spec, or a callable."
+        )
+    import importlib
+
+    module_path, _, attr = target.partition(":")
+    module = importlib.import_module(module_path)
+    try:
+        generator = getattr(module, attr)
+    except AttributeError as exc:
+        raise AttributeError(f"module {module_path!r} has no attribute {attr!r}.") from exc
+    if not callable(generator):
+        raise TypeError(f"{spec!r} resolved to a non-callable {type(generator).__name__}.")
+    return generator
+
+
 @dataclass
 class PipelineResult:
     metrics: dict
@@ -117,7 +159,7 @@ def run_pipeline(
     target,
     checkpoint: str,
     *,
-    generator: Generator,
+    generator,
     classifier=None,
     groups: tuple[str, ...] = ALL_GROUPS,
     seed: int = 0,
@@ -128,15 +170,17 @@ def run_pipeline(
     Args:
         source / target: raw slides (AnnData or ``.h5ad`` paths), passed straight to ``generator``.
         checkpoint: the trained model checkpoint, passed straight to ``generator``.
-        generator: any callable implementing the :class:`Generator` contract (e.g.
-            ``paired_slides_eval.adapters.nicheflow.nicheflow_generator``).
+        generator: a :class:`Generator` callable, a registry name (e.g. ``"nicheflow"``), or a
+            ``"module.path:callable"`` spec — resolved via :func:`resolve_generator`.
         classifier: optional fallback for the ``ct/*`` groups when the generator does not return
             one — either a ready classifier ``nn.Module`` or a path to a ``.ckpt``.
         groups / seed: forwarded to :func:`paired_slides_eval.evaluate.evaluate`.
         **generator_kwargs: any extra options your ``generator`` accepts (e.g. the NicheFlow
             adapter's ``n_pcs``, ``radius``, ``classifier_h5ad`` …).
     """
-    out = generator(source=source, target=target, checkpoint=checkpoint, **generator_kwargs)
+    out = resolve_generator(generator)(
+        source=source, target=target, checkpoint=checkpoint, **generator_kwargs
+    )
 
     clf = out.classifier
     if clf is None and classifier is not None:

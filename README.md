@@ -179,9 +179,10 @@ python -m paired_slides_eval.generate --generator mypkg.mymodel:my_generator \
 python -m paired_slides_eval.evaluate --target target.h5ad --generated gen.h5ad
 ```
 
-The bundled **NicheFlow** adapter (`pip install -e ".[nicheflow]"`) is one ready generator:
-`--generator paired_slides_eval.adapters.nicheflow:nicheflow_generator`, or the
-`python -m paired_slides_eval.pipeline` CLI.
+The bundled **NicheFlow** adapter (`pip install -e ".[nicheflow]"`) is registered by name — use
+`--generator nicheflow` (or `generator="nicheflow"` in `run_pipeline`), or the
+`python -m paired_slides_eval.pipeline` CLI. Register your own model the same way by adding it to
+`paired_slides_eval.pipeline.GENERATOR_REGISTRY`.
 
 ## Layout
 
