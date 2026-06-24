@@ -8,9 +8,9 @@ Standalone (evaluate cells you already generated)::
 
     target = TargetSlide.from_anndata("target.h5ad", ct_key="class")   # raw genes + obsm['spatial']
 
-    # whole-slide model -> flat cells (label-free metrics; niche metrics skipped):
+    # whole-slide model -> flat cells (label-free + classifier metrics; only regression skipped):
     generated = GeneratedSlide.from_anndata("generated.h5ad")          # (N, D)
-    # OR NicheFlow-style microenvironments (enables the niche metrics too):
+    # OR NicheFlow-style microenvironments (model-supplied paired niches; enables regression too):
     generated = GeneratedNiches.from_anndata("generated.h5ad")         # (B, N, D), centroid first
 
     results = evaluate(target, generated)                              # {test/group/metric: value}

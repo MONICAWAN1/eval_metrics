@@ -85,8 +85,9 @@ def from_generated_anndata(
 
     The generated layout is auto-detected: niche-shaped (:class:`GeneratedNiches`) if
     ``obs[niche_key]`` is present, otherwise a flat whole-slide
-    :class:`GeneratedSlide` (``X`` + ``obsm['spatial']``). With a flat slide the niche metrics
-    (regression, concordance, ct_gap) are skipped.
+    :class:`GeneratedSlide` (``X`` + ``obsm['spatial']``). For a flat slide the classifier metrics
+    (concordance, ct_gap) are still computed by reconstructing niches from geometry; only
+    regression (needs matched ground truth) is skipped.
 
     Args:
         generated_adata_or_path: the generated cells (AnnData or path).

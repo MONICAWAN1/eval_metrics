@@ -17,7 +17,7 @@ def _build(real_slide, generated_niches):
 def test_evaluate_geometric_groups(real_slide, generated_niches):
     target, generated = _build(real_slide, generated_niches)
     out = evaluate(target, generated, groups=("psd", "spd"))
-    assert set(out) - {"_skipped"} == {
+    assert set(out) - {"_skipped", "_notes"} == {
         "test/psd/mean",
         "test/psd/max",
         "test/spd/mean",

@@ -42,11 +42,13 @@ Each slide is a plain AnnData with:
 
 - **`GeneratedSlide`** — a **flat** whole slide: `X` + `obsm["spatial"]`, one row per cell, exactly
   like the target. For ordinary generative models. The label-free metrics (psd, spd, distribution,
-  c2st, moran) run on it; the niche metrics are skipped.
+  c2st, moran) run on it; the classifier metrics (concordance, ct_gap) also run — niches are
+  reconstructed from geometry (each cell's neighbourhood paired to the nearest real cell's, whose
+  label supplies `gt_ct`). Only regression (needs cell-for-cell matched ground truth) is skipped.
 - **`GeneratedNiches`** — **niche-shaped**: flat rows with `obs["niche_id"]` grouping each niche's
   points (centroid first), coords in `obsm["spatial"]`; paired ground-truth in
   `obsm["gt_x"]`/`obsm["gt_pos"]` and the paired real centroid label in `obs["gt_ct"]`. Required by
-  the niche metrics (regression, concordance, ct_gap).
+  regression and the preferred (model-supplied) pairing for the classifier metrics.
 
 Target and generated must share one feature space — either keep both as raw
 genes (same panel), or pass `n_pcs=` to fit one PCA on the target and `.project()` the generated
@@ -57,9 +59,9 @@ from paired_slides_eval import TargetSlide, GeneratedSlide, GeneratedNiches, eva
 
 target = TargetSlide.from_anndata("target.h5ad", ct_key="class")        # raw genes + coords
 
-# whole-slide model -> flat cells (niche metrics auto-skipped):
+# whole-slide model -> flat cells (classifier metrics auto-built from geometry; regression skipped):
 generated = GeneratedSlide.from_anndata("generated.h5ad")               # (N, D)
-# OR niche-shaped cells (enables the niche metrics):
+# OR niche-shaped cells (model-supplied pairing; enables regression too):
 generated = GeneratedNiches.from_anndata("generated.h5ad")             # (B, N, D), centroid first
 
 results = evaluate(target, generated)                                   # {test/group/metric: ...}
@@ -195,9 +197,11 @@ Prefer the low-level NicheFlow API directly? `preprocess_pair(...)` → `generat
 
 ## Evaluate (all metrics, or a selected subset)
 
-`python -m paired_slides_eval.evaluate` runs the suite on one `(target slide, generated cells)` pair: a
-target `.h5ad` plus generated cells as a `.h5ad` (niche-shaped with `obs['niche_id']`, or flat
-`X`+`obsm['spatial']`) or an `.npz` (`x`/`pos`, 3-D for niches or 2-D for flat; optional `gt_*`).
+`python -m paired_slides_eval.evaluate` runs the suite on one `(target slide, generated cells)` pair.
+The target is a `.h5ad` (raw genes) or a NicheFlow preprocessed `.pkl`; the generated cells are a
+`.h5ad` (niche-shaped with `obs['niche_id']`, or flat `X`+`obsm['spatial']`), an `.npz` (`x`/`pos`,
+3-D for niches or 2-D for flat; optional `gt_*`), or a `.pkl` (a `GenerationResult` or a dict of
+those arrays).
 
 ```bash
 # ALL applicable metrics (default). Geometry + distribution + C2ST + Moran need no classifier:
@@ -214,8 +218,10 @@ python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated
   --classifier Classifier_Spatial.ckpt --out results.csv
 ```
 
-Groups whose inputs are missing are skipped automatically (no `gt_*` → skips regression; no
-`--classifier` → skips the `ct/*` groups) and reported in a `skipped:` line. Useful flags:
+Groups whose inputs are missing are skipped automatically (a flat slide → skips regression; no
+`--classifier` → skips the `ct/*` groups) and reported in a `skipped:` line; anything reconstructed
+on the fly (e.g. classifier niches auto-built from a flat slide) is reported in a `notes:` line.
+Useful flags:
 
 | Flag | Default | Purpose |
 |---|---|---|
@@ -268,18 +274,19 @@ pickle.dump(clf_ds, open("classifier_niches.pkl", "wb"))   # niche .pkl for the 
 
 ## Metrics
 
-The label-free groups run on **either** a flat `GeneratedSlide` or `GeneratedNiches`; the niche
-groups (regression, concordance, ct_gap) need `GeneratedNiches` and are auto-skipped for a flat slide.
+The label-free groups run on **either** a flat `GeneratedSlide` or `GeneratedNiches`. The classifier
+groups need paired niches: supplied on a `GeneratedNiches`, or auto-built from a flat slide via
+geometry. Only regression needs cell-for-cell matched ground truth and is skipped for a flat slide.
 
 | Group | Keys | Shape | Needs |
 |---|---|---|---|
-| Pointwise regression | `x/{mse,mae}`, `pos/{mse,mae}` | niche | matched `gt_*` |
+| Pointwise regression | `x/{mse,mae}`, `pos/{mse,mae}` | niche only | matched `gt_*` |
 | Point/shape distances | `psd/{mean,max}`, `spd/{mean,max}` | flat or niche | — |
 | Distribution | `mmd2/{x,pos}`, `ot_w1/{x,pos}`, `ot_w2/{x,pos}` | flat or niche | `torch`, `pot` |
 | C2ST (label-free) | `c2st/{acc,auc,pos_acc,sig_*}` | flat or niche | `sklearn` |
 | Moran's I (label-free) | `moran/{mae,corr,real_mean,gen_mean}` | flat or niche | `squidpy` — over **all** generated cells vs the full real slide |
-| Cell-type concordance | `ct/{f1,acc,prop_kl,prop_tv,prop_jsd}` | niche | classifier + paired real niches `gt_*` |
-| Classifier accuracy gap | `ct/{acc_real,acc_gen,acc_gap}` | niche | classifier + paired niches `gt_*` + true labels `gt_ct` |
+| Cell-type concordance | `ct/{f1,acc,prop_kl,prop_tv,prop_jsd}` | flat or niche | classifier + paired niches `gt_*` (auto-built from a flat slide) |
+| Classifier accuracy gap | `ct/{acc_real,acc_gen,acc_gap}` | flat or niche | classifier + paired niches `gt_*` + true labels `gt_ct` (from `ct_key` for a flat slide) |
 
 The **accuracy gap** runs the trained classifier on the real target niches and on the generated
 niches, each scored against the true centroid labels; a small `|acc_real - acc_gen|` means the

@@ -13,11 +13,14 @@ from a checkpoint + raw slides, see :func:`paired_slides_eval.pipeline.run.run_p
 
 from __future__ import annotations
 
+import numpy as np
+
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide, TargetSlide
 from paired_slides_eval.data.anndata import read_anndata
+from paired_slides_eval.metrics._common import build_paired_niches_from_flat
 from paired_slides_eval.metrics.c2st import c2st_metrics
 from paired_slides_eval.metrics.classifier_gap import classifier_accuracy_gap
-from paired_slides_eval.metrics.concordance import cell_type_concordance
+from paired_slides_eval.metrics.concordance import _resolve_n_neighbors, cell_type_concordance
 from paired_slides_eval.metrics.distances import point_to_shape, regression_metrics, shape_to_point
 from paired_slides_eval.metrics.distribution import distribution_distance
 from paired_slides_eval.metrics.morans import morans_compare
@@ -41,6 +44,8 @@ def evaluate(
     classifier=None,
     classifier_spatial: bool = True,
     classifier_n_neighbors: int | None = None,
+    auto_niche_from_flat: bool = True,
+    auto_niche_max: int | None = None,
     groups: tuple[str, ...] = ALL_GROUPS,
     prefix: str = "test",
     seed: int = 0,
@@ -62,8 +67,13 @@ def evaluate(
 
     ``generated`` may be a :class:`~paired_slides_eval.contract.GeneratedNiches` (niche-shaped) or
     a flat :class:`~paired_slides_eval.contract.GeneratedSlide`. The label-free groups run on
-    either; the niche groups (``regression``, ``concordance``, ``ct_gap``) need ``GeneratedNiches``
-    and are skipped for a flat slide.
+    either. The classifier groups (``concordance``, ``ct_gap``) need paired niches: a
+    ``GeneratedNiches`` supplies them directly, while for a flat slide they are reconstructed from
+    geometry when ``auto_niche_from_flat`` is set (each generated cell's neighbourhood paired to the
+    nearest real cell's; ``ct_gap`` additionally needs the target's ``ct`` labels). Set
+    ``auto_niche_max`` to cap how many generated cells are used as niche centroids. ``regression``
+    needs cell-for-cell matched ground truth, which a flat slide cannot provide, so it stays skipped
+    for a flat slide regardless.
     """
     out: dict[str, float] = {}
     skipped: list[str] = []
@@ -133,18 +143,38 @@ def evaluate(
             )
         )
 
+    # The classifier groups compare each generated niche to a *paired real* niche. A niche-aware
+    # model supplies that pairing on the `GeneratedNiches` (`gt_x`/`gt_pos`[/`gt_ct`]); for a flat
+    # whole-slide model we reconstruct it from geometry so the metrics still run. Build it once and
+    # share between concordance and ct_gap.
+    notes: list[str] = []
+    niche_gen = generated
+    if classifier is not None and ("concordance" in groups or "ct_gap" in groups):
+        if not _has_paired_niches(generated) and isinstance(generated, GeneratedSlide):
+            if auto_niche_from_flat:
+                niche_gen = _auto_paired_niches(
+                    generated,
+                    target,
+                    classifier,
+                    spatial=classifier_spatial,
+                    n_neighbors=classifier_n_neighbors,
+                    max_centroids=auto_niche_max,
+                    seed=seed,
+                )
+                if niche_gen is not None:
+                    notes.append(
+                        f"classifier niches auto-built from the flat slide via geometry "
+                        f"({niche_gen.x.shape[0]} centroids paired to nearest real cells)"
+                    )
+
     if "concordance" in groups:
-        if (
-            classifier is not None
-            and getattr(generated, "gt_x", None) is not None
-            and getattr(generated, "gt_pos", None) is not None
-        ):
+        if classifier is not None and _has_paired_niches(niche_gen):
             out.update(
                 cell_type_concordance(
-                    generated.x,
-                    generated.pos,
-                    generated.gt_x,
-                    generated.gt_pos,
+                    niche_gen.x,
+                    niche_gen.pos,
+                    niche_gen.gt_x,
+                    niche_gen.gt_pos,
                     classifier,
                     prefix=prefix,
                     spatial=classifier_spatial,
@@ -154,23 +184,24 @@ def evaluate(
             )
         else:
             skipped.append(
-                "concordance (needs `classifier` and paired real niches `generated.gt_x/gt_pos`)"
+                "concordance (needs `classifier` and paired real niches — supply a "
+                "`GeneratedNiches` with `gt_x/gt_pos`, or a flat slide with coords so they can be "
+                "auto-built)"
             )
 
     if "ct_gap" in groups:
         if (
             classifier is not None
-            and getattr(generated, "gt_x", None) is not None
-            and getattr(generated, "gt_pos", None) is not None
-            and getattr(generated, "gt_ct", None) is not None
+            and _has_paired_niches(niche_gen)
+            and getattr(niche_gen, "gt_ct", None) is not None
         ):
             out.update(
                 classifier_accuracy_gap(
-                    generated.x,
-                    generated.pos,
-                    generated.gt_x,
-                    generated.gt_pos,
-                    generated.gt_ct,
+                    niche_gen.x,
+                    niche_gen.pos,
+                    niche_gen.gt_x,
+                    niche_gen.gt_pos,
+                    niche_gen.gt_ct,
                     classifier,
                     prefix=prefix,
                     spatial=classifier_spatial,
@@ -179,12 +210,61 @@ def evaluate(
             )
         else:
             skipped.append(
-                "ct_gap (needs `classifier`, paired niches `generated.gt_x/gt_pos` and true "
-                "centroid labels `generated.gt_ct`)"
+                "ct_gap (needs `classifier`, paired niches `gt_x/gt_pos` and true centroid labels "
+                "`gt_ct` — for a flat slide, pass a target with `ct_key` so labels are available)"
             )
 
     out["_skipped"] = skipped
+    out["_notes"] = notes
     return out
+
+
+def _has_paired_niches(generated) -> bool:
+    """True if ``generated`` carries the paired real microenvironments the classifier groups need."""
+    return (
+        getattr(generated, "gt_x", None) is not None
+        and getattr(generated, "gt_pos", None) is not None
+    )
+
+
+def _auto_paired_niches(
+    generated: GeneratedSlide,
+    target: TargetSlide,
+    classifier,
+    *,
+    spatial: bool,
+    n_neighbors: int | None,
+    max_centroids: int | None,
+    seed: int,
+) -> GeneratedNiches | None:
+    """Reconstruct paired niches from a flat slide via geometry, for the classifier groups.
+
+    The niche size matches what the spatial classifier was trained on (``_resolve_n_neighbors``);
+    a gene-only classifier only reads the centroid, so a single point suffices. Returns ``None``
+    when there are too few cells to form a niche. ``gt_ct`` is filled only when the target carries
+    cell-type labels (``target.ct``), so ``ct_gap`` is enabled exactly when those labels exist.
+    """
+    gen_pos = generated.flat_pos
+    if len(gen_pos) < 1 or len(target.pos) < 1:
+        return None
+
+    k = _resolve_n_neighbors(n_neighbors, classifier) if spatial else 1
+
+    centroid_indices = None
+    if max_centroids is not None and len(gen_pos) > max_centroids:
+        rng = np.random.default_rng(seed)
+        centroid_indices = rng.choice(len(gen_pos), max_centroids, replace=False)
+
+    nx, npos, gt_x, gt_pos, gt_ct = build_paired_niches_from_flat(
+        generated.flat_x,
+        gen_pos,
+        target.x,
+        target.pos,
+        k,
+        real_ct=target.ct,
+        centroid_indices=centroid_indices,
+    )
+    return GeneratedNiches(x=nx, pos=npos, gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct)
 
 
 def build_spatial_classifier(
@@ -219,25 +299,53 @@ def build_spatial_classifier(
     return clf
 
 
+def _generated_from_mapping(m) -> GeneratedNiches | GeneratedSlide:
+    """Build generated cells from an ``x``/``pos`` mapping (``.npz`` or an unpickled dict).
+
+    Niche-shaped if ``x`` is 3-D ``(B, N, D)`` (optionally with ``gt_x``/``gt_pos``/``gt_ct``),
+    else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``.
+    """
+    x = np.asarray(m["x"])
+    if x.ndim == 3:
+        extra = {k: np.asarray(m[k]) for k in ("gt_x", "gt_pos", "gt_ct") if k in m}
+        return GeneratedNiches(x=x, pos=np.asarray(m["pos"]), **extra)
+    return GeneratedSlide(x=x, pos=np.asarray(m["pos"]))
+
+
 def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiches | GeneratedSlide:
     """Load generated cells, auto-detecting niche-shaped vs flat.
 
     ``.h5ad``: niche-shaped if ``obs[niche_key]`` is present, else a flat ``GeneratedSlide``.
     ``.npz``: niche-shaped if ``x`` is 3-D ``(B, N, D)`` (optionally with ``gt_x``/``gt_pos``/
     ``gt_ct``), else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``.
+    ``.pkl``: a NicheFlow ``GenerationResult`` (has ``to_generated_niches``) or a dict with the
+    same ``x``/``pos``[/``gt_*``] arrays as the ``.npz`` form.
     """
     if str(path).endswith(".h5ad"):
         adata = read_anndata(path)
         if niche_key in adata.obs:
             return GeneratedNiches.from_anndata(adata, niche_key=niche_key)
         return GeneratedSlide.from_anndata(adata)
-    import numpy as np
 
-    npz = np.load(path)
-    if npz["x"].ndim == 3:
-        extra = {k: npz[k] for k in ("gt_x", "gt_pos", "gt_ct") if k in npz}
-        return GeneratedNiches(x=npz["x"], pos=npz["pos"], **extra)
-    return GeneratedSlide(x=npz["x"], pos=npz["pos"])
+    if str(path).endswith(".pkl"):
+        import pickle
+
+        with open(path, "rb") as fh:
+            obj = pickle.load(fh)
+        if hasattr(obj, "to_generated_niches"):  # a NicheFlow GenerationResult
+            return obj.to_generated_niches()
+        if isinstance(obj, (GeneratedNiches, GeneratedSlide)):
+            return obj
+        if isinstance(obj, dict) and "x" in obj and "pos" in obj:
+            return _generated_from_mapping(obj)
+        raise ValueError(
+            f"Unrecognised generated .pkl contents ({type(obj).__name__}). Expected a "
+            "GenerationResult, a GeneratedNiches/GeneratedSlide, or a dict with x/pos arrays. "
+            "A preprocessed-slide pickle is a *real* slide — load it as a target with "
+            "TargetSlide.from_dataclass instead."
+        )
+
+    return _generated_from_mapping(np.load(path))
 
 
 def _main() -> None:
@@ -248,13 +356,20 @@ def _main() -> None:
     ap = argparse.ArgumentParser(
         description="Run the metric suite on a (target slide, generated cells) pair."
     )
-    ap.add_argument("--target", required=True, help="the target slide .h5ad (raw genes + coords)")
+    ap.add_argument(
+        "--target",
+        required=True,
+        help="the target slide: a .h5ad (raw genes + coords) or a NicheFlow preprocessed .pkl "
+        "(X_pca already reduced; --n_pcs/--expr_key are then ignored)",
+    )
     ap.add_argument(
         "--generated",
         required=True,
         help="generated cells. Niche-shaped: .npz with x (B,N,P), pos (B,N,P) "
-        "[+ gt_x/gt_pos/gt_ct] or an .h5ad with obs['niche_id']. Flat (whole-slide): .npz with "
-        "2-D x/pos, or an .h5ad with X + obsm['spatial'] (niche metrics are then skipped).",
+        "[+ gt_x/gt_pos/gt_ct], an .h5ad with obs['niche_id'], or a .pkl (GenerationResult / dict "
+        "of arrays). Flat (whole-slide): .npz with 2-D x/pos, or an .h5ad with X + "
+        "obsm['spatial'] (niche metrics are then auto-built from geometry when a classifier is "
+        "given).",
     )
     ap.add_argument(
         "--classifier", default=None, help="optional classifier .ckpt (enables the ct/* groups)"
@@ -285,15 +400,18 @@ def _main() -> None:
     ap.add_argument("--no_mask_centroid", action="store_true", help="ablation: keep the centroid")
     args = ap.parse_args()
 
-    target = TargetSlide.from_anndata(
-        args.target,
-        timepoint=args.timepoint,
-        expr_key=args.expr_key,
-        spatial_key=args.spatial_key,
-        ct_key=args.ct_key,
-        timepoint_key=args.timepoint_key,
-        n_pcs=args.n_pcs,
-    )
+    if str(args.target).endswith(".pkl"):
+        target = TargetSlide.from_dataclass(args.target, timepoint=args.timepoint)
+    else:
+        target = TargetSlide.from_anndata(
+            args.target,
+            timepoint=args.timepoint,
+            expr_key=args.expr_key,
+            spatial_key=args.spatial_key,
+            ct_key=args.ct_key,
+            timepoint_key=args.timepoint_key,
+            n_pcs=args.n_pcs,
+        )
     generated = _load_generated(args.generated).project(target.pca)
 
     classifier = None
@@ -312,6 +430,7 @@ def _main() -> None:
     res = evaluate(target, generated, classifier=classifier, groups=groups, seed=args.seed)
 
     skipped = res.pop("_skipped")
+    notes = res.pop("_notes", [])
     rows = sorted(res.items())
     print(f"target: {target.x.shape[0]} cells, {target.x.shape[1]} features")
     if generated.x.ndim == 3:
@@ -320,6 +439,8 @@ def _main() -> None:
         print(f"generated: {generated.x.shape[0]} cells, {generated.x.shape[1]} feats (flat slide)")
     for k, v in rows:
         print(f"{k:24s} {v:.4f}")
+    if notes:
+        print("notes:", "; ".join(notes))
     if skipped:
         print("skipped:", "; ".join(skipped))
 

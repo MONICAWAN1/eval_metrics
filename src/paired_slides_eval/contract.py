@@ -9,10 +9,12 @@ Two shapes for the generated cells:
 
 * :class:`GeneratedSlide` — a **flat** slide, ``x (N, D)`` + ``pos (N, D)``. Use this for
   whole-slide generative models. The label-free metrics (psd, spd, distribution, c2st, moran)
-  run on it directly; the niche metrics are skipped.
+  run on it directly; the classifier metrics (concordance, ct_gap) are still computed by
+  reconstructing niches from geometry (see :func:`paired_slides_eval.evaluate.evaluate`); only
+  regression — which needs cell-for-cell matched ground truth — stays skipped.
 * :class:`GeneratedNiches` — **niche-shaped**, ``x (B, N, D)`` (centroid at point 0). Required by
-  the niche metrics (regression, concordance, ct_gap), which compare each generated niche to its
-  paired real microenvironment.
+  the regression metric and the preferred input for the classifier metrics, which compare each
+  generated niche to its model-supplied paired real microenvironment.
 
 Conventions
 -----------
@@ -36,6 +38,7 @@ from paired_slides_eval.data.anndata import (
     slide_coords,
     slide_expression,
 )
+from paired_slides_eval.data.dataclass import load_h5ad_dataset_dataclass
 
 
 @dataclass
@@ -108,6 +111,39 @@ class TargetSlide:
             x = pca.transform(x)
 
         return cls(x=x, pos=pos, ct=ct, n_classes=n_classes, pca=pca)
+
+    @classmethod
+    def from_dataclass(cls, ds_or_path, *, timepoint: str | None = None) -> TargetSlide:
+        """Build a ``TargetSlide`` from a NicheFlow preprocessed ``.pkl`` (an ``H5ADDatasetDataclass``).
+
+        This reuses the same processed pickle the NicheFlow pipeline trains on: expression comes
+        from ``X_pca`` (already PCA-reduced — so ``.pca`` is ``None`` and generated cells must
+        already live in that space), coordinates from ``coords`` and labels from ``ct``. Generated
+        cells produced in that ``X_pca`` space (e.g. the NicheFlow adapter's output) are directly
+        comparable.
+
+        Args:
+            ds_or_path: an ``H5ADDatasetDataclass`` or a path to a ``.pkl``.
+            timepoint: which slide to use as the target (default: the last in ``timepoints_ordered``).
+        """
+        ds = (
+            ds_or_path
+            if hasattr(ds_or_path, "X_pca")
+            else load_h5ad_dataset_dataclass(ds_or_path)
+        )
+        t = timepoint or ds.timepoints_ordered[-1]
+        idx = np.asarray(ds.timepoint_indices[t])
+
+        x = np.asarray(ds.X_pca)[idx]
+        pos = np.asarray(ds.coords)[idx]
+        ct_raw = np.asarray(ds.ct)[idx]
+        if np.issubdtype(ct_raw.dtype, np.integer):
+            ct = ct_raw.astype(np.int64)
+        else:
+            ct = np.array([ds.ct_to_int[c] for c in ct_raw], dtype=np.int64)
+        n_classes = len(ds.ct_ordered)
+
+        return cls(x=x, pos=pos, ct=ct, n_classes=n_classes, pca=None)
 
 
 @dataclass
@@ -263,8 +299,10 @@ class GeneratedSlide:
 
     For whole-slide generative models that emit a tissue directly, with no niche/microenvironment
     structure. The label-free metrics — ``psd``, ``spd``, ``distribution``, ``c2st``, ``moran`` —
-    consume the flat cloud directly. The niche metrics (``regression``, ``concordance``,
-    ``ct_gap``) need :class:`GeneratedNiches` and are skipped for a ``GeneratedSlide``.
+    consume the flat cloud directly. The classifier metrics (``concordance``, ``ct_gap``) are
+    computed by reconstructing microenvironments from geometry (each cell's neighbourhood paired to
+    the nearest real cell's), so they run too; only ``regression`` needs a :class:`GeneratedNiches`
+    with cell-for-cell matched ground truth and is skipped for a ``GeneratedSlide``.
 
     Exposes the same ``flat_x`` / ``flat_pos`` / ``project`` interface as
     :class:`GeneratedNiches`, so :func:`paired_slides_eval.evaluate.evaluate` accepts either.
