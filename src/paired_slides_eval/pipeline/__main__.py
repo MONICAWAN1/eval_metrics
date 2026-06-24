@@ -1,8 +1,8 @@
-"""CLI for the full pipeline: ``python -m paired_slides_eval.pipeline --source ... --target ...``.
+"""One-shot generate + evaluate CLI: ``python -m paired_slides_eval.pipeline``.
 
-Uses the bundled NicheFlow adapter as the generator (needs the ``[pipeline]`` extra). To drive a
-different model, call :func:`paired_slides_eval.pipeline.run.run_pipeline` from Python with your own
-``generator=``.
+Model-agnostic: pick a generator by registry name (e.g. ``nicheflow``) or a ``module.path:callable``
+spec pointing at your own model, and forward any model-specific options with ``--gen-kwarg``. For
+finer control, call :func:`paired_slides_eval.pipeline.run.run_pipeline` from Python.
 """
 
 from __future__ import annotations
@@ -17,63 +17,74 @@ from paired_slides_eval.pipeline.run import run_pipeline
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Generate cells from a NicheFlow checkpoint and evaluate them, from AnnData."
+        description="Generate cells with a model (a generator) from a checkpoint and evaluate them."
     )
-    ap.add_argument("--source", required=True, help="source slide .h5ad (raw genes+coords)")
+    ap.add_argument(
+        "--generator",
+        default="nicheflow",
+        help="generator: a registry name (default 'nicheflow') or a 'module.path:callable' spec",
+    )
+    ap.add_argument("--source", required=True, help="source slide .h5ad (raw genes + coords)")
     ap.add_argument("--target", required=True, help="target slide .h5ad (to generate)")
-    ap.add_argument("--checkpoint", required=True, help="trained flow checkpoint")
-    ap.add_argument("--classifier", default=None, help="held-out slide .h5ad for the classifier")
-    ap.add_argument("--classifier_ckpt", default=None, help="load a trained classifier instead")
+    ap.add_argument("--checkpoint", required=True, help="trained model checkpoint (-> generator)")
+    ap.add_argument(
+        "--classifier", default=None, help="optional classifier .ckpt (enables the ct/* groups)"
+    )
     ap.add_argument("--out", default=None, help="write a metric,value CSV here")
-    ap.add_argument("--generated_out", default=None, help="write the generated cells .h5ad here")
-    ap.add_argument("--n_pcs", type=int, default=50)
-    ap.add_argument("--cell_type_column", default="class")
-    ap.add_argument("--radius", type=float, default=0.15)
-    ap.add_argument("--dx", type=float, default=0.15)
-    ap.add_argument("--dy", type=float, default=0.2)
-    ap.add_argument("--device", default="cpu")
-    ap.add_argument("--num_steps", type=int, default=20)
-    ap.add_argument("--solver", default="euler")
-    ap.add_argument("--variant", default="cfm", choices=["cfm", "vfm"])
-    ap.add_argument("--n_slices", type=int, default=None, help="backbone ohe_dim (default #slides)")
+    ap.add_argument(
+        "--generated_out", default=None, help="also write the generated cells here (.h5ad / .npz)"
+    )
+    ap.add_argument(
+        "--gen-kwarg",
+        action="append",
+        default=[],
+        dest="gen_kwargs",
+        metavar="KEY=VALUE",
+        help="extra option forwarded to the generator, repeatable (e.g. for nicheflow: "
+        "--gen-kwarg n_pcs=50 --gen-kwarg cell_type_column=class --gen-kwarg radius=0.15)",
+    )
     ap.add_argument("--groups", nargs="+", default=None, choices=ALL_GROUPS)
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
-    # Imported here so the standalone metric path never requires the [pipeline] extra.
-    from paired_slides_eval.adapters.nicheflow import nicheflow_generator
+    from paired_slides_eval.generate import _coerce, write_generated
+
+    kwargs = {}
+    for item in args.gen_kwargs:
+        if "=" not in item:
+            ap.error(f"--gen-kwarg expects KEY=VALUE, got {item!r}")
+        key, _, value = item.partition("=")
+        kwargs[key] = _coerce(value)
 
     groups = tuple(args.groups) if args.groups else ALL_GROUPS
     res = run_pipeline(
         args.source,
         args.target,
         args.checkpoint,
-        generator=nicheflow_generator,
+        generator=args.generator,     # resolved by name / dotted path inside run_pipeline
+        classifier=args.classifier,
         groups=groups,
         seed=args.seed,
-        # forwarded to the NicheFlow adapter:
-        classifier_h5ad=args.classifier,
-        classifier_ckpt=args.classifier_ckpt,
-        n_pcs=args.n_pcs,
-        cell_type_column=args.cell_type_column,
-        radius=args.radius,
-        dx=args.dx,
-        dy=args.dy,
-        device=args.device,
-        num_steps=args.num_steps,
-        solver=args.solver,
-        variant=args.variant,
-        n_slices=args.n_slices,
-        generated_out=args.generated_out,
+        **kwargs,
     )
+
+    if args.generated_out:
+        write_generated(res.generated, args.generated_out)
 
     metrics = dict(res.metrics)
     skipped = metrics.pop("_skipped", [])
+    notes = metrics.pop("_notes", [])
     rows = sorted(metrics.items())
     print(f"target: {res.target.x.shape[0]} cells, {res.target.x.shape[1]} features")
-    print(f"generated: {res.generated.x.shape[0]} niches x {res.generated.x.shape[1]} points")
+    if res.generated.x.ndim == 3:
+        print(f"generated: {res.generated.x.shape[0]} niches x {res.generated.x.shape[1]} points")
+    else:
+        g = res.generated
+        print(f"generated: {g.x.shape[0]} cells, {g.x.shape[1]} feats (flat slide)")
     for k, v in rows:
         print(f"{k:24s} {v:.4f}")
+    if notes:
+        print("notes:", "; ".join(notes))
     if skipped:
         print("skipped:", "; ".join(skipped))
 

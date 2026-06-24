@@ -141,9 +141,7 @@ def from_generated_anndata(
     """
     from paired_slides_eval.data.anndata import read_anndata
 
-    target = TargetSlide.from_anndata(
-        target_adata_or_path, ct_key=ct_key, n_pcs=n_pcs, **(target_kwargs or {})
-    )
+    target = _resolve_target(target_adata_or_path, ct_key=ct_key, n_pcs=n_pcs, **(target_kwargs or {}))
     gen_adata = read_anndata(generated_adata_or_path)
     if niche_key in gen_adata.obs:
         generated = GeneratedNiches.from_anndata(
@@ -152,6 +150,55 @@ def from_generated_anndata(
     else:
         generated = GeneratedSlide.from_anndata(gen_adata, **(generated_kwargs or {}))
     return GenerationOutput(target=target, generated=generated.project(target.pca))
+
+
+def _resolve_target(target, *, ct_key=None, n_pcs=50, **target_kwargs) -> TargetSlide:
+    """Accept a ready :class:`TargetSlide` as-is, or build one from an AnnData / ``.h5ad`` path."""
+    if isinstance(target, TargetSlide):
+        return target
+    return TargetSlide.from_anndata(target, ct_key=ct_key, n_pcs=n_pcs, **target_kwargs)
+
+
+def from_generated_arrays(
+    x,
+    pos,
+    target,
+    *,
+    gt_x=None,
+    gt_pos=None,
+    gt_ct=None,
+    ct_key: str | None = None,
+    n_pcs: int | None = 50,
+    target_kwargs: dict | None = None,
+) -> GenerationOutput:
+    """Build a :class:`GenerationOutput` from in-memory generated arrays + a target.
+
+    The array counterpart of :func:`from_generated_anndata`, for generators that return cells
+    directly (no intermediate ``.h5ad``). Niche-shaped if ``x`` is 3-D ``(B, N, D)`` (optionally
+    with ``gt_x``/``gt_pos``/``gt_ct``), else a flat ``(N, D)`` slide.
+
+    Feature space is reconciled automatically (see
+    :func:`~paired_slides_eval.contract._pca_aware_transform`): if the cells are in **gene space**
+    they are projected through the target's PCA; if they are already **PCA-reduced** (a model that
+    samples in latent space, like a flow), they are passed through unchanged. For the latter, supply
+    the target already in that same basis — pass a ready ``TargetSlide`` (``pca=None``), or an
+    AnnData with ``target_kwargs={"expr_key": "X_pca"}`` and ``n_pcs=None``.
+
+    Args:
+        x / pos: generated expression / coordinates, ``(B, N, D)`` (niche) or ``(N, D)`` (flat).
+        target: a ready :class:`TargetSlide`, or an AnnData / ``.h5ad`` path to build one from.
+        gt_x / gt_pos / gt_ct: optional paired ground truth (niche-shaped only).
+        ct_key / n_pcs / target_kwargs: used only when building the target from AnnData.
+    """
+    import numpy as np
+
+    target_slide = _resolve_target(target, ct_key=ct_key, n_pcs=n_pcs, **(target_kwargs or {}))
+    x = np.asarray(x)
+    if x.ndim == 3:
+        generated = GeneratedNiches(x=x, pos=pos, gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct)
+    else:
+        generated = GeneratedSlide(x=x, pos=pos)
+    return GenerationOutput(target=target_slide, generated=generated.project(target_slide.pca))
 
 
 def run_pipeline(

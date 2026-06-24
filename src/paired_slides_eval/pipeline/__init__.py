@@ -15,6 +15,7 @@ from paired_slides_eval.pipeline.run import (
     Generator,
     PipelineResult,
     from_generated_anndata,
+    from_generated_arrays,
     resolve_generator,
     run_pipeline,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "GenerationOutput",
     "PipelineResult",
     "from_generated_anndata",
+    "from_generated_arrays",
     "resolve_generator",
     "run_pipeline",
 ]

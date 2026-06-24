@@ -40,6 +40,33 @@ from paired_slides_eval.data.anndata import (
 )
 
 
+def _pca_aware_transform(x2d: np.ndarray, pca) -> np.ndarray:
+    """Project ``x2d`` (rows = cells) through ``pca``, or pass it through if already PCA-reduced.
+
+    The space is detected by **feature dimension**: an array whose width matches the PCA's input
+    (raw-feature) dimension is in gene space and gets projected; one whose width matches the PCA's
+    output (component) dimension is taken to be already in that PCA basis and is returned unchanged
+    (so cells generated directly in PCA space — e.g. a flow-matching model — are not double-
+    transformed). Any other width is an error: the cells share neither space with the target.
+
+    Detection is dimensional only — when both sides are already reduced it cannot verify they came
+    from the *same* PCA fit, so a pre-reduced target and pre-reduced generated cells must share one
+    basis (the usual way: build both from the same preprocessing).
+    """
+    feat = x2d.shape[-1]
+    in_dim = pca.components.shape[1]   # raw-feature (gene) dimension the PCA was fit on
+    out_dim = pca.components.shape[0]  # number of components (reduced dimension)
+    if feat == in_dim:
+        return pca.transform(x2d)
+    if feat == out_dim:
+        return np.asarray(x2d)
+    raise ValueError(
+        f"Generated features (dim {feat}) match neither the target PCA's input dim {in_dim} "
+        f"(raw features → would be projected) nor its output dim {out_dim} (already reduced). "
+        "Make sure the generated cells share the target's feature space."
+    )
+
+
 @dataclass
 class TargetSlide:
     """A real target slide: every cell's expression + coordinates, plus optional labels.
@@ -209,8 +236,9 @@ class GeneratedNiches:
     def project(self, pca) -> GeneratedNiches:
         """Project expression (and ``gt_x``) through a target ``pca`` into the shared basis.
 
-        No-op when ``pca`` is ``None`` (both sides already in the same raw-gene space). Returns a
-        new ``GeneratedNiches``; coordinates are untouched.
+        No-op when ``pca`` is ``None``. When ``pca`` is set, the space is auto-detected by feature
+        dimension (see :func:`_pca_aware_transform`): gene-space cells are projected; cells already
+        in the PCA basis are passed through unchanged. Coordinates are untouched.
         """
         if pca is None:
             return self
@@ -219,7 +247,7 @@ class GeneratedNiches:
             if arr is None:
                 return None
             b, n, _ = arr.shape
-            return pca.transform(arr.reshape(-1, arr.shape[-1])).reshape(b, n, -1)
+            return _pca_aware_transform(arr.reshape(-1, arr.shape[-1]), pca).reshape(b, n, -1)
 
         return GeneratedNiches(
             x=_proj(self.x), pos=self.pos, gt_x=_proj(self.gt_x), gt_pos=self.gt_pos,
@@ -334,10 +362,15 @@ class GeneratedSlide:
         return self
 
     def project(self, pca) -> GeneratedSlide:
-        """Project expression through a target ``pca`` into the shared basis (no-op if ``None``)."""
+        """Project expression into the target's basis, or pass through if already PCA-reduced.
+
+        No-op when ``pca`` is ``None``; otherwise the space is auto-detected by feature dimension
+        (see :func:`_pca_aware_transform`) — gene-space cells are projected, already-reduced cells
+        are returned unchanged.
+        """
         if pca is None:
             return self
-        return GeneratedSlide(x=pca.transform(self.x), pos=self.pos)
+        return GeneratedSlide(x=_pca_aware_transform(self.x, pca), pos=self.pos)
 
     @classmethod
     def from_anndata(

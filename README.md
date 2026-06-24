@@ -1,7 +1,7 @@
 # paired-slides-eval
 
 A **model-agnostic evaluation library** for generative models on spatial transcriptomics. It scores
-a set of **generated cells** against a real **target slide** — each given as plain arrays, an
+a set of **generated cells** against a real **target slide** — each given as plain arrays/AnnData files, an
 expression matrix paired with spatial coordinates — and reports the full metric suite. Evaluation is
 decoupled from generation: a model's architecture and sampling code stay wherever the model lives,
 and this library consumes only the cells it produces. An optional integrated-generation layer is
@@ -74,8 +74,12 @@ those arrays, or a generator result object).
 
 **One thing to get right — shared feature space.** Target and generated must live in the same
 space: either both raw genes (same panel) or both projected through one PCA. Pass `n_pcs=` (or
-`--n_pcs`) and the helpers fit the PCA on the target and project the generated cells into it. Get
-this wrong and you get plausible-but-meaningless numbers.
+`--n_pcs`) and the helpers fit the PCA on the target. Projection of the generated cells is then
+**auto-detected by feature dimension**: gene-space cells are projected into the target's PCA basis,
+while cells a model already produced in PCA space (e.g. a flow that samples latents) are passed
+through unchanged rather than double-transformed. For that already-reduced case the target must be
+supplied in the *same* basis (a `TargetSlide` with `pca=None`, or an AnnData read via
+`expr_key="X_pca"` with `n_pcs=None`).
 
 Build the inputs explicitly if you prefer (instead of `evaluate_files`):
 
@@ -155,22 +159,34 @@ checkpoint into a comparable `(target, generated)` pair:
 def my_generator(*, source, target, checkpoint, **kwargs) -> GenerationOutput: ...
 ```
 
-Define this in your code repo for the model. `from_generated_anndata` builds the return value in 
-one line if your model writes a gene-space `.h5ad`:
+Define this in your code repo for the model. Two one-line helpers build the return value:
+`from_generated_arrays` if the model returns arrays in memory, or `from_generated_anndata` if it
+writes a gene-space `.h5ad`. Both auto-reconcile the feature space (gene-space cells are projected;
+already-PCA cells pass through), so a model that samples in PCA/latent space works too — pass a
+`TargetSlide` already in that basis:
 
 ```python
-from paired_slides_eval.pipeline import run_pipeline, from_generated_anndata
+from paired_slides_eval.pipeline import run_pipeline, from_generated_arrays
 from my_model import sample                                   
 
 def my_generator(*, source, target, checkpoint, ct_key="class", n_pcs=50, **_):
-    sample(source, target, checkpoint, out="gen.h5ad")        # generation code from model repo
-    return from_generated_anndata("gen.h5ad", target, ct_key=ct_key, n_pcs=n_pcs)
+    x, pos = sample(source, target, checkpoint)               # generation code from model repo
+    return from_generated_arrays(x, pos, target, ct_key=ct_key, n_pcs=n_pcs)
 
 res = run_pipeline("source.h5ad", "target.h5ad", "model.ckpt", generator=my_generator)
 print(res.metrics)
 ```
 
-Or keep generation and evaluation as two CLI steps (the generator is selected by dotted path):
+Or run the whole thing from one command — the pipeline CLI is model-agnostic (`--generator` takes a
+registry name or a `module.path:callable` spec; model-specific options go through `--gen-kwarg`):
+
+```bash
+python -m paired_slides_eval.pipeline --generator mypkg.mymodel:my_generator \
+  --source source.h5ad --target target.h5ad --checkpoint model.ckpt \
+  --gen-kwarg n_pcs=50 --out results.csv
+```
+
+Or keep generation and evaluation as two separate steps:
 
 ```bash
 python -m paired_slides_eval.generate --generator mypkg.mymodel:my_generator \
