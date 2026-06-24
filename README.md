@@ -104,41 +104,94 @@ pair (in the standardized `X_pca` space) back to the pipeline.
 
 ### Bring your own model
 
-If you are using other generative models, write a `generator` — any callable that turns the
-raw slides + a checkpoint into a `GenerationOutput`. If your model writes generated cells to a
-`.h5ad` in gene space, `from_generated_anndata` builds the output in one line:
+**You never edit this package, and the package never imports your model.** You write a small
+*generator function* in **your own code** — that function is the only place your model gets
+imported — and hand it to `run_pipeline` as `generator=…`. So:
+
+- **Where do you import your model?** Inside your generator's module (top of the file, or lazily in
+  the function) — a file you own, anywhere on your `PYTHONPATH`.
+- **Where do you define your generator?** The same file. It's just a function matching the contract:
+
+  ```python
+  def my_generator(*, source, target, checkpoint, **kwargs) -> GenerationOutput: ...
+  ```
+
+  where `source`/`target` are the raw `.h5ad` slides and `checkpoint` is your model — all passed
+  straight through from `run_pipeline`. It returns a `GenerationOutput` (a `target` + `generated`
+  pair, and optionally a trained `classifier`).
+
+Your generator owns exactly one job: make the real target and the generated cells comparable. The
+easiest path is `from_generated_anndata` — your model writes generated cells to a gene-space
+`.h5ad`, and the helper fits one PCA on the target and projects both sides into it (target and
+generated **must share a feature space**), auto-detecting niche-shaped vs flat:
 
 ```python
+# my_project/run_eval.py
 from paired_slides_eval.pipeline import run_pipeline, from_generated_anndata
 
-def my_generator(*, source, target, checkpoint, **kw):
-    my_model_generate(source, target, checkpoint, out="gen.h5ad")   # your code; gene-space niches
-    return from_generated_anndata("gen.h5ad", target, ct_key="class", n_pcs=50)
+from my_model import load_and_sample          # <-- YOUR model, imported in YOUR module
 
-res = run_pipeline("source.h5ad", "target.h5ad", "model.ckpt",
-                   generator=my_generator, classifier="classifier.ckpt")
+def my_generator(*, source, target, checkpoint, ct_key="class", n_pcs=50, **_):
+    # (a) run your model however it likes; write generated cells to a gene-space .h5ad
+    load_and_sample(source=source, target=target, checkpoint=checkpoint, out="gen.h5ad")
+    # (b) turn that file into the (target, generated) pair the metrics expect
+    return from_generated_anndata("gen.h5ad", target, ct_key=ct_key, n_pcs=n_pcs)
+
+res = run_pipeline(
+    "source.h5ad", "target.h5ad", "model.ckpt",  # -> your generator's source/target/checkpoint
+    generator=my_generator,                       # your function
+    classifier="classifier.ckpt",                 # optional: enables the ct/* metrics (or omit)
+    ct_key="class", n_pcs=50,                      # extra kwargs -> forwarded into my_generator(**kwargs)
+)
+print(res.metrics)                                # flat {test/group/metric: value} dict
 ```
+
+What `run_pipeline` does with your function: (1) calls `my_generator(source=…, target=…,
+checkpoint=…, **extra_kwargs)` — any extra keyword you pass to `run_pipeline` lands in your
+generator's `**kwargs`; (2) picks the classifier (your `GenerationOutput.classifier`, else the
+`classifier=` you passed); (3) runs `evaluate(...)` and returns a `PipelineResult` with `.metrics`,
+`.target`, `.generated`.
 
 The generated `.h5ad` follows the `GeneratedNiches.from_anndata` layout: one row per cell,
 `obs['niche_id']` grouping each niche (centroid first), coords in `obsm['spatial']`, and optional
-paired ground truth in `obsm['gt_x']` / `obsm['gt_pos']` / `obs['gt_ct']`.
+paired ground truth in `obsm['gt_x']` / `obsm['gt_pos']` / `obs['gt_ct']`. A whole-slide model
+instead emits flat cells (`X` + `obsm['spatial']`, no `niche_id`); the niche metrics are then
+skipped.
+
+Prefer full control? Build the dataclasses yourself and return them, instead of using the helper:
+
+```python
+from paired_slides_eval import TargetSlide, GeneratedNiches
+from paired_slides_eval.pipeline import GenerationOutput
+
+def my_generator(*, source, target, checkpoint, **_):
+    target_slide = TargetSlide.from_anndata(target, ct_key="class", n_pcs=50)
+    generated = GeneratedNiches.from_anndata("gen.h5ad").project(target_slide.pca)  # share PCA basis
+    return GenerationOutput(target=target_slide, generated=generated, classifier=None)
+```
 
 ### Alternative: generate once, then evaluate (two steps)
 
-Instead of the one-shot `run_pipeline`, split it: **generate** the cells to a `.h5ad` once, then
+Instead of the one-shot `run_pipeline`, split it: **generate** the cells to a file once, then
 **evaluate** that file as many times (and on whatever metric subset) as you like without
-regenerating. Generation with the bundled NicheFlow adapter:
+regenerating. The model-agnostic generate CLI runs *any* generator — pick one by dotted path
+(`module.path:callable`); it defaults to the bundled NicheFlow adapter:
 
-```python
-from paired_slides_eval.adapters.nicheflow import preprocess_pair, generate
+```bash
+# bring your own model (a Generator callable), write the cells, then evaluate them
+python -m paired_slides_eval.generate \
+  --generator mypkg.mymodel:my_generator \
+  --source source.h5ad --target target.h5ad --checkpoint model.ckpt \
+  --generated_out generated.h5ad \
+  --gen-kwarg n_pcs=50 --gen-kwarg radius=0.15      # extra opts forwarded to your generator
 
-ds, _ = preprocess_pair("source.h5ad", "target.h5ad", n_pcs=50, cell_type_column="class")
-gen = generate(ds, "flow.ckpt", variant="cfm")     # samples the flow
-gen.to_anndata().write_h5ad("generated.h5ad")       # niche-shaped generated cells
+python -m paired_slides_eval.evaluate --target target.h5ad --generated generated.h5ad
 ```
 
-(Or swap in your own model and write `generated.h5ad` yourself — niche-shaped, or flat
-`X`+`obsm['spatial']` for a whole-slide model.) Then evaluate it with the CLI below.
+`--generated_out` takes `.h5ad` or `.npz`; the layout round-trips through the evaluator's loader.
+From Python the same is `generate_cells(source, target, checkpoint, generator=…, out="generated.h5ad")`.
+Prefer the low-level NicheFlow API directly? `preprocess_pair(...)` → `generate(...)` →
+`gen.to_anndata().write_h5ad("generated.h5ad")` works too. Either way, evaluate it with the CLI below.
 
 ## Evaluate (all metrics, or a selected subset)
 
@@ -241,6 +294,7 @@ src/paired_slides_eval/
   data/anndata.py      read raw .h5ad -> arrays; optional shared PCA          [common, model-agnostic]
   data/dataclass.py    the internal niche pickle schema + loader
   evaluate.py          evaluate(target, generated) -> flat dict + standalone CLI
+  generate.py          model-agnostic generate-only entry point + CLI (resolve generator, write cells)
   metrics/             kernels + each metric's own prep (c2st, distribution, morans, distances,
                        concordance, classifier_gap) — Moran/classifier niches built here, locally
   pipeline/            model-agnostic run_pipeline + Generator protocol (NO nicheflow import)

@@ -31,9 +31,25 @@ The bundled NicheFlow adapter (needs the ``[pipeline]`` extra) is one such gener
 Bring your own model: write a ``generator`` that returns a
 :class:`~paired_slides_eval.pipeline.GenerationOutput` (``from_generated_anndata`` does this in
 one line from a generated ``.h5ad``) — no NicheFlow needed.
+
+Generate and evaluate as **separate steps** (generate once, evaluate many times) via the
+model-agnostic generate entry point :mod:`paired_slides_eval.generate`::
+
+    python -m paired_slides_eval.generate --generator mypkg.mymodel:my_generator \\
+        --source source.h5ad --target target.h5ad --checkpoint flow.ckpt --generated_out gen.h5ad
+    python -m paired_slides_eval.evaluate --target target.h5ad --generated gen.h5ad
 """
 
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide, TargetSlide
 from paired_slides_eval.evaluate import ALL_GROUPS, evaluate
+from paired_slides_eval.generate import generate_cells, write_generated
 
-__all__ = ["ALL_GROUPS", "GeneratedNiches", "GeneratedSlide", "TargetSlide", "evaluate"]
+__all__ = [
+    "ALL_GROUPS",
+    "GeneratedNiches",
+    "GeneratedSlide",
+    "TargetSlide",
+    "evaluate",
+    "generate_cells",
+    "write_generated",
+]
