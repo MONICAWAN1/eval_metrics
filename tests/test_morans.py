@@ -4,7 +4,7 @@ import pytest
 pytest.importorskip("squidpy")
 pytest.importorskip("anndata")
 
-from nicheflow_eval.metrics.morans import morans_compare, morans_i
+from paired_slides_eval.metrics.morans import morans_compare, morans_i
 
 
 def test_morans_i_detects_spatial_gradient(rng):

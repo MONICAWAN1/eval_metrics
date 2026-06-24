@@ -1,5 +1,5 @@
 datamodule:
-  _target_: nicheflow_eval.classifier.datamodule.H5ADCTDataModule
+  _target_: paired_slides_eval.classifier.datamodule.H5ADCTDataModule
   split_seed: ${seed}
   train_batch_size: 1024
   eval_batch_size: 1024

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from nicheflow_eval import GeneratedNiches, TargetSlide
+from paired_slides_eval import GeneratedNiches, TargetSlide
 
 
 def test_target_from_anndata_raw_genes(target_adata):

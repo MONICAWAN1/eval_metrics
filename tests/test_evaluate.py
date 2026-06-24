@@ -1,6 +1,6 @@
 import numpy as np
 
-from nicheflow_eval import GeneratedNiches, TargetSlide, evaluate
+from paired_slides_eval import GeneratedNiches, TargetSlide, evaluate
 
 
 def _build(real_slide, generated_niches):

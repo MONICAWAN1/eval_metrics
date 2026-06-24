@@ -1,4 +1,4 @@
-# nicheflow-eval
+# paired-slides-eval
 
 Evaluation metrics for generative models on spatial transcriptomics. Inputs are
 **original AnnData (`.h5ad`) files** with raw gene expression + spatial coordinates. Two ways to use it:
@@ -16,12 +16,12 @@ needs to be trained first on the classifier-training-slide before running the ev
 ## Install
 
 ```bash
-cd nicheflow-eval
+cd paired-slides-eval
 uv venv && uv pip install -e ".[wandb]"   # or: pip install -e .
 ```
 
 The standalone metrics and the generic pipeline need only the deps above. The bundled **NicheFlow
-adapter** (`nicheflow_eval.adapters.nicheflow`) additionally imports NicheFlow (not on PyPI);
+adapter** (`paired_slides_eval.adapters.nicheflow`) additionally imports NicheFlow (not on PyPI);
 install it from the sibling repo only if using nicheflow:
 
 ```bash
@@ -53,7 +53,7 @@ genes (same panel), or pass `n_pcs=` to fit one PCA on the target and `.project(
 cells through it:
 
 ```python
-from nicheflow_eval import TargetSlide, GeneratedSlide, GeneratedNiches, evaluate
+from paired_slides_eval import TargetSlide, GeneratedSlide, GeneratedNiches, evaluate
 
 target = TargetSlide.from_anndata("target.h5ad", ct_key="class")        # raw genes + coords
 
@@ -75,8 +75,8 @@ The pipeline is **model-agnostic**: `run_pipeline` takes a `generator` (the blac
 NicheFlow adapter is one generator:
 
 ```python
-from nicheflow_eval.pipeline import run_pipeline
-from nicheflow_eval.adapters.nicheflow import nicheflow_generator
+from paired_slides_eval.pipeline import run_pipeline
+from paired_slides_eval.adapters.nicheflow import nicheflow_generator
 
 res = run_pipeline(
     "source.h5ad", "target.h5ad", "flow.ckpt",   # source/target slides + trained checkpoint
@@ -90,7 +90,7 @@ print(res.metrics)                                # flat {test/group/metric: val
 Or from the command line (defaults to the NicheFlow adapter):
 
 ```bash
-python -m nicheflow_eval.pipeline \
+python -m paired_slides_eval.pipeline \
   --source SOURCE.h5ad --target TARGET.h5ad \
   --checkpoint FLOW.ckpt \
   --classifier CLASSIFIER_SLIDE.h5ad \
@@ -109,7 +109,7 @@ raw slides + a checkpoint into a `GenerationOutput`. If your model writes genera
 `.h5ad` in gene space, `from_generated_anndata` builds the output in one line:
 
 ```python
-from nicheflow_eval.pipeline import run_pipeline, from_generated_anndata
+from paired_slides_eval.pipeline import run_pipeline, from_generated_anndata
 
 def my_generator(*, source, target, checkpoint, **kw):
     my_model_generate(source, target, checkpoint, out="gen.h5ad")   # your code; gene-space niches
@@ -130,7 +130,7 @@ Instead of the one-shot `run_pipeline`, split it: **generate** the cells to a `.
 regenerating. Generation with the bundled NicheFlow adapter:
 
 ```python
-from nicheflow_eval.adapters.nicheflow import preprocess_pair, generate
+from paired_slides_eval.adapters.nicheflow import preprocess_pair, generate
 
 ds, _ = preprocess_pair("source.h5ad", "target.h5ad", n_pcs=50, cell_type_column="class")
 gen = generate(ds, "flow.ckpt", variant="cfm")     # samples the flow
@@ -142,21 +142,21 @@ gen.to_anndata().write_h5ad("generated.h5ad")       # niche-shaped generated cel
 
 ## Evaluate (all metrics, or a selected subset)
 
-`python -m nicheflow_eval.evaluate` runs the suite on one `(target slide, generated cells)` pair: a
+`python -m paired_slides_eval.evaluate` runs the suite on one `(target slide, generated cells)` pair: a
 target `.h5ad` plus generated cells as a `.h5ad` (niche-shaped with `obs['niche_id']`, or flat
 `X`+`obsm['spatial']`) or an `.npz` (`x`/`pos`, 3-D for niches or 2-D for flat; optional `gt_*`).
 
 ```bash
 # ALL applicable metrics (default). Geometry + distribution + C2ST + Moran need no classifier:
-python -m nicheflow_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
+python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
   --ct_key class --n_pcs 50 --out results.csv
 
 # a SELECTED subset only:
-python -m nicheflow_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
+python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
   --groups c2st moran
 
 # add the classifier groups (concordance + accuracy gap) — needs a TRAINED classifier (see below):
-python -m nicheflow_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
+python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
   --ct_key class --n_pcs 50 \
   --classifier Classifier_Spatial.ckpt --out results.csv
 ```
@@ -184,7 +184,7 @@ projected into the source+target basis at preprocessing time.
 the classifier automatically — no checkpoint to manage:
 
 ```bash
-python -m nicheflow_eval.pipeline \
+python -m paired_slides_eval.pipeline \
   --source ../nicheflow_mba/data/adata_Zhuang_Zhuang-ABCA-1.024.h5ad \
   --target ../nicheflow_mba/data/adata_Zhuang_Zhuang-ABCA-1.025.h5ad \
   --checkpoint ../nicheflow_mba/ckpts/NicheFlow_CFM_ABCA.ckpt \
@@ -196,7 +196,7 @@ python -m nicheflow_eval.pipeline \
 use the configured entry point. It reads a preprocessed niche `.pkl` via `data.datamodule.data_fp`:
 
 ```bash
-python -m nicheflow_eval.classifier.train experiment=classifier/abca_spatial \
+python -m paired_slides_eval.classifier.train experiment=classifier/abca_spatial \
   data.datamodule.data_fp=PATH/TO/classifier_niches.pkl
 ```
 
@@ -206,7 +206,7 @@ then pickling:
 
 ```python
 import pickle
-from nicheflow_eval.adapters.nicheflow import preprocess_pair, preprocess_classifier_slide
+from paired_slides_eval.adapters.nicheflow import preprocess_pair, preprocess_classifier_slide
 
 _, pre = preprocess_pair("source.h5ad", "target.h5ad", n_pcs=50, cell_type_column="class")
 clf_ds = preprocess_classifier_slide("classifier_slide.h5ad", pre, cell_type_column="class")
@@ -236,7 +236,7 @@ generated niches are as classifiable as the real ones. See `docs/metric_comparis
 ## Layout
 
 ```
-src/nicheflow_eval/
+src/paired_slides_eval/
   contract.py          TargetSlide / GeneratedSlide (flat) / GeneratedNiches — the AnnData contract
   data/anndata.py      read raw .h5ad -> arrays; optional shared PCA          [common, model-agnostic]
   data/dataclass.py    the internal niche pickle schema + loader

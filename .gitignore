@@ -18,5 +18,5 @@ __pycache__/
 
 # notebooks scratch
 notebooks/.ipynb_checkpoints/
-src/nicheflow_eval/validation.py
+src/paired_slides_eval/validation.py
 .claude/

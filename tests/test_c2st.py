@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from nicheflow_eval.metrics.c2st import c2st, c2st_metrics
+from paired_slides_eval.metrics.c2st import c2st, c2st_metrics
 
 
 def test_c2st_chance_on_identical_distribution(rng):

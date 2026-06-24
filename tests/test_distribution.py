@@ -4,7 +4,7 @@ import pytest
 pytest.importorskip("torch")
 pytest.importorskip("ot")
 
-from nicheflow_eval.metrics.distribution import distribution_distance, mmd2_rbf, ot_distance
+from paired_slides_eval.metrics.distribution import distribution_distance, mmd2_rbf, ot_distance
 
 
 def test_mmd_near_zero_for_same_distribution(rng):

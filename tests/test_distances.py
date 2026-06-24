@@ -1,6 +1,6 @@
 import numpy as np
 
-from nicheflow_eval.metrics.distances import point_to_shape, regression_metrics, shape_to_point
+from paired_slides_eval.metrics.distances import point_to_shape, regression_metrics, shape_to_point
 
 
 def test_psd_zero_when_generated_equals_real(rng):

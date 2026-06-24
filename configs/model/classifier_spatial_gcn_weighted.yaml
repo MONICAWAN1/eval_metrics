@@ -1,4 +1,4 @@
-_target_: nicheflow_eval.classifier.task.CellTypeClassification
+_target_: paired_slides_eval.classifier.task.CellTypeClassification
 
 # Class-weighted variant of classifier_spatial_gcn.yaml. The plain GCN collapses onto the
 # majority cell types under the (heavily imbalanced) ABCA olfactory-bulb sections: high
@@ -7,7 +7,7 @@ _target_: nicheflow_eval.classifier.task.CellTypeClassification
 # split at fit start) to push the model to cover minority types. Model selection switches
 # to macro-F1 so the checkpoint is not chosen on majority-dominated metrics.
 net:
-  _target_: nicheflow_eval.classifier.nets.GraphCTClassifierNet
+  _target_: paired_slides_eval.classifier.nets.GraphCTClassifierNet
   input_dim: ${data.n_pcs}
   coord_dim: ${data.coord_dim}
   hidden_dim: 64

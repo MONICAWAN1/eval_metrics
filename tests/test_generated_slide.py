@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from nicheflow_eval import GeneratedNiches, GeneratedSlide, TargetSlide, evaluate
+from paired_slides_eval import GeneratedNiches, GeneratedSlide, TargetSlide, evaluate
 
 
 def test_niches_to_slide_is_single_flatten_path(generated_adata):
@@ -59,7 +59,7 @@ def test_evaluate_flat_slide_runs_label_free_and_skips_niche(target_adata, gener
 
 
 def test_load_generated_autodetects_flat(tmp_path, rng):
-    from nicheflow_eval.evaluate import _load_generated
+    from paired_slides_eval.evaluate import _load_generated
 
     # flat .npz (2-D x) -> GeneratedSlide
     npz_path = tmp_path / "flat.npz"

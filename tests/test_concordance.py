@@ -3,7 +3,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from nicheflow_eval.metrics.concordance import cell_type_concordance
+from paired_slides_eval.metrics.concordance import cell_type_concordance
 
 
 class _GeneOnlyNet(torch.nn.Module):

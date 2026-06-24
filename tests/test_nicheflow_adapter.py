@@ -8,7 +8,7 @@ ad = pytest.importorskip("anndata")
 
 import pandas as pd
 
-from nicheflow_eval.adapters.nicheflow import preprocess_pair, target_from_dataclass
+from paired_slides_eval.adapters.nicheflow import preprocess_pair, target_from_dataclass
 
 
 def _toy_slide(rng, n=120, n_genes=30):

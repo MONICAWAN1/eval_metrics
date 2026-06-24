@@ -1,4 +1,4 @@
-_target_: nicheflow_eval.classifier.task.CellTypeClassification
+_target_: paired_slides_eval.classifier.task.CellTypeClassification
 
 # GCN (Kipf & Welling) spatial classifier, masked-centroid. The simplest GNN probe: a
 # baseline to compare against classifier_spatial.yaml (Set-Transformer) and
@@ -6,7 +6,7 @@ _target_: nicheflow_eval.classifier.task.CellTypeClassification
 # representation: gene expression = node features, coordinates = graph structure (kNN
 # edges), NOT concatenated.
 net:
-  _target_: nicheflow_eval.classifier.nets.GraphCTClassifierNet
+  _target_: paired_slides_eval.classifier.nets.GraphCTClassifierNet
   input_dim: ${data.n_pcs} # gene-expression dim = GCN node-feature dim
   coord_dim: ${data.coord_dim} # spatial coord dim (defines edges, not node features)
   hidden_dim: 64

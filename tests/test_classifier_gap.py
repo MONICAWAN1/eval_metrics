@@ -4,7 +4,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from nicheflow_eval.metrics.classifier_gap import classifier_accuracy_gap
+from paired_slides_eval.metrics.classifier_gap import classifier_accuracy_gap
 
 
 class _TinyClassifier(torch.nn.Module):

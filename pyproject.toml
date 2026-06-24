@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = ["hatchling"]
 
 [project]
-name = "nicheflow-eval"
+name = "paired-slides-eval"
 version = "0.1.0"
 description = "Standalone evaluation metrics for spatial single-cell generative models (NicheFlow)."
 readme = "README.md"
@@ -35,8 +35,8 @@ dependencies = [
 
 [project.optional-dependencies]
 wandb = ["wandb>=0.16"]
-# The bundled generation adapter (`nicheflow_eval.adapters.nicheflow`) imports the NicheFlow flow
-# model as a blackbox. The generic pipeline (`nicheflow_eval.pipeline`) and standalone metrics do
+# The bundled generation adapter (`paired_slides_eval.adapters.nicheflow`) imports the NicheFlow flow
+# model as a blackbox. The generic pipeline (`paired_slides_eval.pipeline`) and standalone metrics do
 # NOT need it. NicheFlow is not on PyPI; install it from the sibling repo, e.g.:
 #   pip install -e ../nicheflow_mba
 # (kept out of the dependency list so the standalone metric path installs without it).
@@ -54,7 +54,7 @@ dev = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/nicheflow_eval"]
+packages = ["src/paired_slides_eval"]
 
 [tool.ruff]
 line-length = 100

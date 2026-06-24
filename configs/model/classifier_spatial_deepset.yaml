@@ -1,10 +1,10 @@
-_target_: nicheflow_eval.classifier.task.CellTypeClassification
+_target_: paired_slides_eval.classifier.task.CellTypeClassification
 
 # DeepSet (mean+max pooling) spatial classifier, masked-centroid. Baseline to compare
 # head-to-head with classifier_spatial.yaml (the Set-Transformer variant); both mask the
 # centroid so both score pure spatial-context coherence.
 net:
-  _target_: nicheflow_eval.classifier.nets.SpatialDeepSetCTClassifierNet
+  _target_: paired_slides_eval.classifier.nets.SpatialDeepSetCTClassifierNet
   input_dim: ${data.n_pcs} # The number of PCA components (gene-expression dim)
   coord_dim: ${data.coord_dim} # The spatial coordinate dim
   hidden_dim: 64
