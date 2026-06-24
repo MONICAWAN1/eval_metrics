@@ -1,10 +1,9 @@
 """Top-level entry point: run the whole evaluation suite on one (target, generated) pair.
 
-``evaluate`` returns a flat ``{prefix/group/metric: value}`` dict matching the columns the
-NicheFlow result CSVs use, so existing reporting code keeps working. Each metric group is
-optional and is skipped (with a note in the returned ``_skipped`` list) when its inputs are
-absent — e.g. the classifier groups need a classifier + paired niches, regression needs matched
-ground truth.
+``evaluate`` returns a flat ``{prefix/group/metric: value}`` dict, convenient to write straight to
+a results CSV. Each metric group is optional and is skipped (with a note in the returned
+``_skipped`` list) when its inputs are absent — e.g. the classifier groups need a classifier +
+paired niches, regression needs matched ground truth.
 
 This is the **standalone** path: it takes a real ``TargetSlide`` and the model's
 ``GeneratedNiches`` (both built from AnnData) and never touches the flow model. To go all the way
@@ -370,8 +369,8 @@ def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiche
     ``.h5ad``: niche-shaped if ``obs[niche_key]`` is present, else a flat ``GeneratedSlide``.
     ``.npz``: niche-shaped if ``x`` is 3-D ``(B, N, D)`` (optionally with ``gt_x``/``gt_pos``/
     ``gt_ct``), else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``.
-    ``.pkl``: a NicheFlow ``GenerationResult`` (has ``to_generated_niches``) or a dict with the
-    same ``x``/``pos``[/``gt_*``] arrays as the ``.npz`` form.
+    ``.pkl``: a generator result object (any object with a ``to_generated_niches`` method) or a
+    dict with the same ``x``/``pos``[/``gt_*``] arrays as the ``.npz`` form.
     """
     if str(path).endswith(".h5ad"):
         adata = read_anndata(path)
@@ -384,7 +383,7 @@ def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiche
 
         with open(path, "rb") as fh:
             obj = pickle.load(fh)
-        if hasattr(obj, "to_generated_niches"):  # a NicheFlow GenerationResult
+        if hasattr(obj, "to_generated_niches"):  # a generator result object
             return obj.to_generated_niches()
         if isinstance(obj, (GeneratedNiches, GeneratedSlide)):
             return obj
@@ -411,7 +410,7 @@ def _main() -> None:
     ap.add_argument(
         "--target",
         required=True,
-        help="the target slide: a .h5ad (raw genes + coords) or a NicheFlow preprocessed .pkl "
+        help="the target slide: a .h5ad (raw genes + coords) or a preprocessed-slide .pkl "
         "(X_pca already reduced; --n_pcs/--expr_key are then ignored)",
     )
     ap.add_argument(

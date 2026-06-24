@@ -3,8 +3,7 @@
 Train a binary classifier to tell sample ``X`` (label 0) from ``Y`` (label 1); the held-out
 accuracy/AUC is the statistic. ~0.5 == indistinguishable (good); ~1.0 == trivially separable
 (bad). ``c2st`` / ``c2st_significance`` are the framework-free kernels (follow Lopez-Paz &
-Oquab 2017); ``c2st_metrics`` is the wrapper computing the per-cell joint and pos-only views
-used in the NicheFlow evaluation.
+Oquab 2017); ``c2st_metrics`` is the wrapper computing the per-cell joint and pos-only views.
 """
 
 from __future__ import annotations

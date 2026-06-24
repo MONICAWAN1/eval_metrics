@@ -167,7 +167,7 @@ def subsample(arr: np.ndarray, max_n: int, rng: np.random.Generator) -> np.ndarr
 def strip_module_prefix(state_dict: dict, prefix: str = "net.") -> dict:
     """Strip a leading ``prefix`` (e.g. ``net.``) from Lightning checkpoint state-dict keys.
 
-    NicheFlow classifier checkpoints wrap the net as ``self.net`` inside the LightningModule, so
+    This package's spatial classifier wraps the net as ``self.net`` inside the LightningModule, so
     the saved keys are ``net.<...>``. This returns only those keys, de-prefixed, ready for
     ``net.load_state_dict``.
     """

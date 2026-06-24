@@ -45,7 +45,7 @@ def test_resolve_generator_bad_spec_raises(spec):
 
 def test_resolve_generator_non_callable_raises():
     with pytest.raises(TypeError):
-        resolve_generator("paired_slides_eval.generate:DEFAULT_GENERATOR")  # a str, not callable
+        resolve_generator("paired_slides_eval.generate:__doc__")  # a str, not callable
 
 
 # --- _coerce -----------------------------------------------------------------

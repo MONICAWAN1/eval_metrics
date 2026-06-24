@@ -10,8 +10,9 @@ The generator is the same blackbox contract the pipeline uses
 ``torch``/``nicheflow``/``scanpy`` itself — it only *orchestrates* (resolve the generator, call it,
 serialize the result); the model-specific imports live inside whichever generator you pick.
 
-From the CLI you select a generator by dotted path (``module.path:callable``); it defaults to the
-bundled NicheFlow adapter::
+From the CLI you select a generator by dotted path (``module.path:callable``) — this is required,
+the package favours no model. The bundled NicheFlow adapter
+(``paired_slides_eval.adapters.nicheflow:nicheflow_generator``) is one choice::
 
     python -m paired_slides_eval.generate \\
         --generator mypkg.mymodel:my_generator \\
@@ -30,10 +31,6 @@ import numpy as np
 
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide
 from paired_slides_eval.pipeline.run import GenerationOutput
-
-# The bundled generator used when ``--generator`` is not given (needs the ``[pipeline]`` extra).
-# Imported lazily by :func:`resolve_generator`, so importing this module stays dependency-light.
-DEFAULT_GENERATOR = "paired_slides_eval.adapters.nicheflow:nicheflow_generator"
 
 
 def resolve_generator(spec):
@@ -127,7 +124,7 @@ def generate_cells(
     target,
     checkpoint: str,
     *,
-    generator=DEFAULT_GENERATOR,
+    generator,
     out: str | None = None,
     **generator_kwargs,
 ) -> GenerationOutput:
@@ -137,8 +134,8 @@ def generate_cells(
         source / target: raw slides (AnnData or ``.h5ad`` paths), passed straight to the generator.
         checkpoint: the trained model checkpoint, passed straight to the generator.
         generator: a :class:`~paired_slides_eval.pipeline.run.Generator` callable, or a
-            ``"module.path:callable"`` spec resolved via :func:`resolve_generator` (default: the
-            bundled NicheFlow adapter).
+            ``"module.path:callable"`` spec resolved via :func:`resolve_generator` (required — the
+            bundled NicheFlow adapter is one choice).
         out: optional path (``.h5ad`` / ``.npz``) to write the generated cells to.
         **generator_kwargs: any extra options the chosen generator accepts (e.g. the NicheFlow
             adapter's ``n_pcs``, ``radius``, ``num_steps`` …).
@@ -178,8 +175,9 @@ def _main() -> None:
     )
     ap.add_argument(
         "--generator",
-        default=DEFAULT_GENERATOR,
-        help="generator as 'module.path:callable' (default: the bundled NicheFlow adapter)",
+        required=True,
+        help="generator as 'module.path:callable' (e.g. the bundled "
+        "paired_slides_eval.adapters.nicheflow:nicheflow_generator)",
     )
     ap.add_argument("--source", required=True, help="source slide .h5ad (raw genes + coords)")
     ap.add_argument("--target", required=True, help="target slide .h5ad to generate")

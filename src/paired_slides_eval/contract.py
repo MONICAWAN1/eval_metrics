@@ -38,7 +38,6 @@ from paired_slides_eval.data.anndata import (
     slide_coords,
     slide_expression,
 )
-from paired_slides_eval.data.dataclass import load_h5ad_dataset_dataclass
 
 
 @dataclass
@@ -114,23 +113,23 @@ class TargetSlide:
 
     @classmethod
     def from_dataclass(cls, ds_or_path, *, timepoint: str | None = None) -> TargetSlide:
-        """Build a ``TargetSlide`` from a NicheFlow preprocessed ``.pkl`` (an ``H5ADDatasetDataclass``).
+        """Build a ``TargetSlide`` from a **preprocessed-slide pickle** (an ``H5ADDatasetDataclass``).
 
-        This reuses the same processed pickle the NicheFlow pipeline trains on: expression comes
-        from ``X_pca`` (already PCA-reduced — so ``.pca`` is ``None`` and generated cells must
-        already live in that space), coordinates from ``coords`` and labels from ``ct``. Generated
-        cells produced in that ``X_pca`` space (e.g. the NicheFlow adapter's output) are directly
-        comparable.
+        For inputs already reduced to a shared PCA space: expression comes from ``X_pca`` (so
+        ``.pca`` is ``None`` and generated cells must already live in that space), coordinates from
+        ``coords`` and labels from ``ct``. This is the schema some generators (e.g. the NicheFlow
+        adapter) train and sample in; their output is then directly comparable.
 
         Args:
             ds_or_path: an ``H5ADDatasetDataclass`` or a path to a ``.pkl``.
             timepoint: which slide to use as the target (default: the last in ``timepoints_ordered``).
         """
-        ds = (
-            ds_or_path
-            if hasattr(ds_or_path, "X_pca")
-            else load_h5ad_dataset_dataclass(ds_or_path)
-        )
+        if hasattr(ds_or_path, "X_pca"):
+            ds = ds_or_path
+        else:
+            from paired_slides_eval.data.dataclass import load_h5ad_dataset_dataclass
+
+            ds = load_h5ad_dataset_dataclass(ds_or_path)
         t = timepoint or ds.timepoints_ordered[-1]
         idx = np.asarray(ds.timepoint_indices[t])
 
