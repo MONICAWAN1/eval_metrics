@@ -199,6 +199,14 @@ def preprocess_classifier_slide(
     c = ad.read_h5ad(classifier_h5ad)
     if not c.var_names.equals(base_preprocessor._var_names):
         c = c[:, base_preprocessor._var_names].copy()  # match the flow's gene panel/order
+
+    # Keep only cells whose type is in the source+target vocabulary, so labels map 1:1 to the
+    # classifier's classes (a held-out slide can carry a cell type absent from the pair).
+    vocab = set(base_preprocessor.ct_ordered)
+    keep = np.array([str(v) in vocab for v in c.obs[cell_type_column].astype(str)])
+    if not keep.all():
+        c = c[keep].copy()
+
     c.layers["counts"] = c.X.copy()
     sc.pp.normalize_total(c)
     sc.pp.log1p(c)
