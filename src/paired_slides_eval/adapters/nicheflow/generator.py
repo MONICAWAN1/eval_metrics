@@ -82,6 +82,7 @@ class NicheFlowGenerator(BaseGenerator):
         num_steps: int = 20,
         solver: str = "euler",
         variant: str = "cfm",
+        vfm_objective: str = "GLVFM",
         n_slices: int | None = None,
         classifier_h5ad=None,
         classifier_ckpt: str | None = None,
@@ -96,6 +97,7 @@ class NicheFlowGenerator(BaseGenerator):
         self.num_steps = num_steps
         self.solver = solver
         self.variant = variant
+        self.vfm_objective = vfm_objective
         self.n_slices = n_slices
         self.classifier_h5ad = classifier_h5ad
         self.classifier_ckpt = classifier_ckpt
@@ -123,6 +125,7 @@ class NicheFlowGenerator(BaseGenerator):
             num_steps=self.num_steps,
             solver=self.solver,
             variant=self.variant,
+            vfm_objective=self.vfm_objective,
             device=self.device,
         )
 

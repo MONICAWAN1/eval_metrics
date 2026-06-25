@@ -10,6 +10,7 @@ device: cpu
 num_steps: 20          # flow sampler steps
 solver: euler
 variant: cfm           # cfm | vfm (must match the checkpoint)
+vfm_objective: GLVFM   # VFM objective (GVFM | GLVFM); only used when variant=vfm, must match the ckpt
 n_slices: null         # backbone one-hot dimension (null -> number of slides)
 classifier_h5ad: null  # held-out slide to train the spatial classifier on (enables ct/*)
 classifier_ckpt: null  # or load a pre-trained spatial classifier checkpoint

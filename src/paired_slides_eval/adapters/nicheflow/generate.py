@@ -71,7 +71,7 @@ def _to_nicheflow_dataclass(ds):
     return NFDataclass(**{f.name: getattr(ds, f.name) for f in fields(ds)})
 
 
-def _build_flow(pca_dim, coord_dim, ohe_dim, *, num_steps, solver, variant):
+def _build_flow(pca_dim, coord_dim, ohe_dim, *, num_steps, solver, variant, vfm_objective="GLVFM"):
     """Construct a ``PointCloudFlow`` matching the trained backbone (defaults match the configs)."""
     from nicheflow.models.backbones.pc_transformer import PointCloudTransformer
     from nicheflow.models.flows import CFM, VFM, PointCloudFlow
@@ -79,10 +79,13 @@ def _build_flow(pca_dim, coord_dim, ohe_dim, *, num_steps, solver, variant):
     backbone = PointCloudTransformer(
         pca_dim=pca_dim, ohe_dim=ohe_dim, coord_dim=coord_dim, output_dim=pca_dim + coord_dim
     )
-    variants = {"cfm": CFM, "vfm": VFM}
-    if variant not in variants:
-        raise ValueError(f"Unknown variant {variant!r}; expected one of {list(variants)}.")
-    var = variants[variant](lambda_features=1.0, lambda_pos=1.0)
+    if variant == "cfm":
+        var = CFM(lambda_features=1.0, lambda_pos=1.0)
+    elif variant == "vfm":
+        # VFM additionally needs its objective (GVFM | GLVFM); must match the checkpoint's config.
+        var = VFM(lambda_features=1.0, lambda_pos=1.0, vfm_objective=vfm_objective)
+    else:
+        raise ValueError(f"Unknown variant {variant!r}; expected one of ['cfm', 'vfm'].")
     return PointCloudFlow(backbone=backbone, variant=var, num_steps=num_steps, solver=solver)
 
 
@@ -115,6 +118,7 @@ def generate(
     num_steps: int = 20,
     solver: str = "euler",
     variant: str = "cfm",
+    vfm_objective: str = "GLVFM",
     device: str = "cpu",
 ) -> GenerationResult:
     """Run the flow on the target slide of ``ds`` and return the generated niches + paired GT.
@@ -145,7 +149,8 @@ def generate(
             pickle.dump(_to_nicheflow_dataclass(ds), fh, protocol=pickle.HIGHEST_PROTOCOL)
 
         flow = _build_flow(
-            pca_dim, coord_dim, ohe_dim, num_steps=num_steps, solver=solver, variant=variant
+            pca_dim, coord_dim, ohe_dim, num_steps=num_steps, solver=solver, variant=variant,
+            vfm_objective=vfm_objective,
         )
         _load_backbone(flow, checkpoint, device)
         flow.to(device).eval()
