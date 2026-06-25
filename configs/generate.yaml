@@ -11,5 +11,7 @@ source: ???       # source slide .h5ad (raw genes + obsm['spatial'])
 target: ???       # target slide .h5ad to generate
 checkpoint: ???   # trained model checkpoint, passed to the generator
 
-# Output: where to write the generated cells (.h5ad or .npz).
-generated_out: ???
+# Output: where to write the generated cells (.h5ad or .npz). Defaults into the model-keyed
+# artifacts tree (gitignored, heavy outputs); the chosen generator name names the subfolder.
+# Hydra does not chdir (version_base=None), so this resolves relative to the repo root.
+generated_out: artifacts/${hydra:runtime.choices.generator}/generated.h5ad

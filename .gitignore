@@ -3,9 +3,13 @@ outputs/
 logs/
 ckpts/
 docs/
+artifacts/        # curated heavy eval outputs (generated cells, classifier ckpts), model-keyed
+data/             # input slides + prepared intermediates
 *.pkl
 *.ckpt
 *.h5ad
+
+# `reports/` (saved metric outputs: .csv/.md) is intentionally tracked — a committed eval record.
 
 # python
 __pycache__/

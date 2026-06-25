@@ -99,6 +99,79 @@ def preprocess_pair(
     return pre.to_dataclass(), pre
 
 
+def preprocess_classifier_slide_into_pca(
+    classifier_h5ad,
+    pca,
+    var_names,
+    ct_ordered,
+    *,
+    cell_type_column: str = "class",
+    slide_column: str = "slide",
+    radius: float = 0.15,
+    dx: float = 0.15,
+    dy: float = 0.2,
+    device: str = "cpu",
+) -> H5ADDatasetDataclass:
+    """Project a held-out classifier slide into an **already-fit raw-gene PCA** + label space.
+
+    Counterpart of :func:`preprocess_classifier_slide` for the standalone ``evaluate`` / ``otcfm``
+    path (no NicheFlow shared preprocessing). There the target's feature space is a plain PCA fit on
+    the target's raw genes (``TargetSlide.from_anndata`` with ``n_pcs``)
+    and the generated/target cells are fed to the classifier with **un-standardised** ``X_pca`` and
+    **raw** coordinates. So the classifier must train on exactly that: this projects the slide's raw
+    genes through ``pca`` (no normalize/log, no per-component whitening) and keeps raw coordinates
+    (the radius graph + niche neighbours are built on the raw frame), so the niche representation
+    matches what :func:`paired_slides_eval.evaluate.evaluate` feeds at eval time.
+
+    Args:
+        classifier_h5ad: held-out slide (raw genes + ``obsm['spatial']``).
+        pca: the target's frozen PCA (``TargetSlide.pca``); its ``transform`` projects raw genes.
+        var_names: the target's gene panel order — the slide is reordered to it before projecting.
+        ct_ordered: the target's cell-type vocabulary (ordered); cells outside it are dropped so the
+            classifier's label space matches the target exactly.
+    """
+    import anndata as ad
+
+    c = ad.read_h5ad(classifier_h5ad)
+    if not c.var_names.equals(var_names):
+        c = c[:, var_names].copy()  # match the target's gene panel/order
+
+    # Keep only cells whose type is in the target vocabulary (so labels map 1:1 to eval).
+    vocab = set(ct_ordered)
+    keep = np.array([str(v) in vocab for v in c.obs[cell_type_column].astype(str)])
+    if not keep.all():
+        c = c[keep].copy()
+
+    genes = c.X.toarray() if hasattr(c.X, "toarray") else np.asarray(c.X)
+    n_pcs = pca.components.shape[0]
+    c.obsm["X_pca"] = np.asarray(pca.transform(genes))
+    c.varm["PCs"] = np.asarray(pca.components, dtype=np.float64).T  # (genes, n_pcs); unused later
+    c.obs[slide_column] = "C"
+    c.obs[slide_column] = c.obs[slide_column].astype("category")
+
+    clf_pre = H5ADPreprocessor(
+        timepoint_column=slide_column,
+        cell_type_column=cell_type_column,
+        timepoints_ordered=["C"],
+        standardize_coordinates=True,
+        radius=radius,
+        dx=dx,
+        dy=dy,
+        device=device,
+        external_ct_ordered=list(ct_ordered),
+        # Identity X_pca stats: feed the raw projection (no whitening), exactly as eval does.
+        external_x_pca_stats={"mean": np.zeros(n_pcs), "std": np.ones(n_pcs)},
+    )
+    clf_pre.preprocess_data(c)
+
+    # Eval builds niches from RAW target/generated coordinates, so train on the raw frame too:
+    # restore raw coords and rebuild the radius-graph neighbours on them.
+    clf_pre.coords = np.asarray(c.obsm["spatial"], dtype=np.float64).copy()
+    clf_pre.stats["coords"] = {}
+    clf_pre._compute_radius_graphs()
+    return clf_pre.to_dataclass()
+
+
 def preprocess_classifier_slide(
     classifier_h5ad,
     base_preprocessor: H5ADPreprocessor,

@@ -16,6 +16,7 @@ classifier: null  # optional classifier .ckpt enabling the ct/* groups
 groups: null      # subset of metric groups (null -> all)
 seed: 0
 
-# Optional outputs.
-generated_out: null  # also write the generated cells (.h5ad or .npz)
-out: null            # write a metric,value CSV
+# Outputs (model-keyed by the chosen generator; Hydra does not chdir, so these are repo-relative).
+# Saved metric CSV -> the tracked `reports/` tree; generated cells -> the gitignored `artifacts/` tree.
+out: reports/${hydra:runtime.choices.generator}/metrics.csv
+generated_out: artifacts/${hydra:runtime.choices.generator}/generated.h5ad

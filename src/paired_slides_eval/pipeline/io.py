@@ -8,6 +8,8 @@ and a later evaluate step compose.
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide
@@ -23,6 +25,10 @@ def write_generated(generated: GeneratedNiches | GeneratedSlide, path: str) -> s
     ``gt_pos`` / ``gt_ct``); flat: 2-D ``x`` / ``pos``.
     """
     path = str(path)
+    # Create parent dirs so nested default output paths (e.g. artifacts/<model>/...) work.
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     if path.endswith(".npz"):
         _write_npz(generated, path)
     elif path.endswith(".h5ad"):

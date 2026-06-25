@@ -1,0 +1,18 @@
+# OT-CFM (fm_mnist) generation adapter. Selected with `generator=otcfm`.
+# Unconditional, expression-only baseline: it generates whitened-PCA expression and has NO spatial
+# coordinates, so cells get placeholder coords from the reference. The meaningful metrics are the
+# expression ones (distribution, c2st) -- score with `--groups distribution c2st`.
+_target_: paired_slides_eval.adapters.otcfm.OTCFMGenerator
+
+sample_n: 0            # 0 -> match the reference cell count
+sample_steps: 100      # midpoint ODE integration steps
+n_pcs: 50              # unused now: the generator emits GENE space; set the shared-PCA dim at
+                       # eval time instead (`evaluate --n_pcs 50`). Kept for back-compat.
+ct_key: class          # obs column with cell types on the reference
+coord_mode: random     # placeholder coords: 'reference' (resample target positions) | 'random'
+spatial_key: spatial   # obsm key for the reference's coordinates
+device: cpu
+seed: 0
+# Path to the fm_mnist repo so `import fm` works when fm_mnist is not pip-installed. Set to an
+# ABSOLUTE path (Hydra changes the working dir), or leave null if `fm` is already importable.
+fm_root: null

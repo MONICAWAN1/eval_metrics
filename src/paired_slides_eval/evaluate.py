@@ -346,7 +346,10 @@ def build_spatial_classifier(
         num_heads=num_heads,
         mask_centroid=mask_centroid,
     )
-    load_spatial_classifier(clf, torch.load(ckpt_path, map_location="cpu"))
+    # weights_only=False: a Lightning .ckpt carries more than tensors (e.g. the OmegaConf
+    # hyper_parameters), which the torch>=2.6 weights-only default refuses. The classifier
+    # checkpoint is a trusted local file produced by this package's trainer.
+    load_spatial_classifier(clf, torch.load(ckpt_path, map_location="cpu", weights_only=False))
     return clf
 
 
