@@ -1,0 +1,19 @@
+# Naive-spatial OT-CFM (fm_mnist) generation adapter. Selected with `generator=otcfm_spatial`.
+# Same OT-CFM as `otcfm`, but trained over the CONCATENATED [expression | coords] vector
+# (fm_mnist `train_cfm_spatial.py --spatial_key spatial`), so it jointly generates spatial
+# coordinates instead of using placeholders. `coord_mode: generate` reads the model's own coord
+# tail; the spatial metrics (moran/psd/spd/ot_*/pos) are now a genuine read on the baseline.
+_target_: paired_slides_eval.adapters.otcfm.OTCFMGenerator
+
+sample_n: 0            # 0 -> match the reference cell count
+sample_steps: 100      # midpoint ODE integration steps
+n_pcs: 50              # unused: the generator emits GENE space; set the shared-PCA dim at eval time
+                       # (`evaluate --n_pcs 50`). Kept for back-compat.
+ct_key: class          # obs column with cell types on the reference
+coord_mode: generate   # use the model's own generated coordinates (needs a --spatial_key checkpoint)
+spatial_key: spatial   # obsm key for the reference's coordinates
+device: cpu
+seed: 0
+# Path to the fm_mnist repo so `import fm` works when fm_mnist is not pip-installed. Set to an
+# ABSOLUTE path (Hydra changes the working dir), or leave null if `fm` is already importable.
+fm_root: null

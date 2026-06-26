@@ -18,6 +18,7 @@ from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide, TargetS
 from paired_slides_eval.data.anndata import read_anndata
 from paired_slides_eval.metrics._common import build_paired_niches_from_flat
 from paired_slides_eval.metrics.c2st import c2st_metrics
+from paired_slides_eval.metrics.c2st_graph import c2st_graph_metrics
 from paired_slides_eval.metrics.classifier_gap import classifier_accuracy_gap
 from paired_slides_eval.metrics.concordance import _resolve_n_neighbors, cell_type_concordance
 from paired_slides_eval.metrics.distances import point_to_shape, regression_metrics, shape_to_point
@@ -30,6 +31,7 @@ ALL_GROUPS = (
     "spd",
     "distribution",
     "c2st",
+    "c2st_graph",
     "moran",
     "concordance",
     "ct_gap",
@@ -51,6 +53,7 @@ def evaluate(
     c2st_max_n: int = 2000,
     c2st_n_folds: int = 5,
     c2st_n_perm: int = 0,
+    c2st_graph_k: int = 10,
     mmd_max_n: int = 2000,
     ot_max_n: int = 4000,
     moran_n_neighs: int = 6,
@@ -58,7 +61,8 @@ def evaluate(
     """Compute every applicable metric for ``generated`` vs. ``target`` and return a flat dict.
 
     Groups: ``regression`` (needs ``generated.gt_*``), ``psd``/``spd``, ``distribution`` (MMD/EMD),
-    ``c2st`` (per-cell joint + pos-only), ``moran`` (Moran's I over **all** generated cells),
+    ``c2st`` (per-cell joint + pos-only), ``c2st_graph`` (GCN over spatial kNN graphs — the
+    spatially-aware C2ST), ``moran`` (Moran's I over **all** generated cells),
     ``concordance`` (classifier agreement on generated vs paired-real niches) and ``ct_gap``
     (classifier accuracy gap real-vs-generated). The two classifier groups need a ``classifier``
     and the paired real niches ``generated.gt_*`` (``ct_gap`` also needs ``generated.gt_ct``).
@@ -123,6 +127,23 @@ def evaluate(
                 max_n=c2st_max_n,
                 n_folds=c2st_n_folds,
                 n_perm=c2st_n_perm,
+                seed=seed,
+            )
+        )
+
+    if "c2st_graph" in groups:
+        # Spatially-aware C2ST: a GCN over per-slide spatial kNN graphs (expression as node
+        # features) — reads relative neighbourhoods where the MLP c2st reads absolute coords.
+        out.update(
+            c2st_graph_metrics(
+                target.x,
+                target.pos,
+                generated.flat_x,
+                generated.flat_pos,
+                prefix=prefix,
+                max_n=c2st_max_n,
+                graph_k=c2st_graph_k,
+                n_folds=c2st_n_folds,
                 seed=seed,
             )
         )
