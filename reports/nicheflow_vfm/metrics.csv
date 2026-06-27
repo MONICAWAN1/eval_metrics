@@ -1,6 +1,8 @@
 metric,value
 test/c2st/acc,0.5935
 test/c2st/auc,0.6188133170675395
+test/c2st/graph_acc,0.60875
+test/c2st/graph_auc,0.65189125
 test/c2st/pos_acc,0.58125
 test/ct/acc,0.6062378167641326
 test/ct/acc_gap,0.015594541910331383

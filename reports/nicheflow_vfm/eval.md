@@ -36,6 +36,8 @@ All groups ran (none skipped): the niche-shaped output supplies matched ground t
 |---|---|---|
 | `c2st/acc` | 0.5935 | real-vs-generated classifier accuracy — **near chance (0.5)**: generated cells are hard to tell from real |
 | `c2st/auc` | 0.6188 | |
+| `c2st/graph_acc` | 0.6088 | spatially-aware GCN C2ST (expression-only node features over a joint spatial-kNN graph) |
+| `c2st/graph_auc` | 0.6519 | near the MLP C2ST — generated niches stay hard to separate even under the graph view |
 | `c2st/pos_acc` | 0.5813 | position-only C2ST |
 | `mmd2/x` | 0.0030 | MMD² on expression — very small |
 | `mmd2/pos` | 0.0279 | MMD² on coordinates |
