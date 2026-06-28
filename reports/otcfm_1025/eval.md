@@ -95,6 +95,12 @@ composition diverges sharply (`prop_kl ≈ 7.3`) — the model does not match th
 
 ## Reproduce
 
+> ⚠️ **The table above was produced with the now-retired raw-gene-PCA path**
+> (`prepare_classifier_slide` + `evaluate --n_pcs 50`), which is **not comparable** to the NicheFlow
+> models. The unified flow below standardises on NicheFlow's recipe (shared PCA + standardised
+> coords) and yields **different, cross-model-comparable** numbers. See
+> [`docs/comparability_plan.md`](../../docs/comparability_plan.md).
+
 ```bash
 NF=../nicheflow_mba
 FM=../fm_mnist
@@ -110,30 +116,34 @@ $NF/.venv/bin/python $FM/scripts/train_cfm_spatial.py \
 
 export CUDA_VISIBLE_DEVICES=""   # the rest runs on CPU (this box's GPU driver is too old for the eval venv's torch)
 
-# 2. Prepare the neutral classifier-training slide (1.026 -> 1.025's PCA + label space, raw coords)
-python -m paired_slides_eval.adapters.prepare_classifier_slide \
-  --target $DATA/adata_Zhuang_Zhuang-ABCA-1.025.h5ad \
+# 2. Build the shared pair pkl (basis) + classifier-slide pkl, both in the NicheFlow recipe.
+#    SOURCE fixes the shared PCA basis; use the NicheFlow source slide for the comparison (1.024 here).
+SOURCE=$DATA/adata_Zhuang_Zhuang-ABCA-1.024.h5ad
+python -m paired_slides_eval.adapters.prepare_shared_slides \
+  --source $SOURCE --target $DATA/adata_Zhuang_Zhuang-ABCA-1.025.h5ad \
   --classifier_slide $DATA/adata_Zhuang_Zhuang-ABCA-1.026.h5ad \
-  --ct_key class --n_pcs 50 --out data/abca_1.026_clf_otcfm_1025.pkl
+  --ct_key class --n_pcs 50 \
+  --out_pair data/abca_1025_pair.pkl --out_classifier data/abca_1.026_clf.pkl
 
-# 3. Train the spatial classifier via the existing Hydra trainer (1.025 has 18 cell types)
+# 3. Train the ONE spatial classifier on the classifier-slide pkl (1.025 has 18 cell types)
 python -m paired_slides_eval.classifier.train \
   data=ct_abca_spatial model=classifier_spatial data.n_classes=18 \
-  data.datamodule.data_fp=$PWD/data/abca_1.026_clf_otcfm_1025.pkl \
+  data.datamodule.data_fp=$PWD/data/abca_1.026_clf.pkl \
   callbacks.model_checkpoint.monitor=val/f1 callbacks.early_stopping.monitor=val/f1 \
   '~callbacks.lr_monitor' model.plot_callbacks=False \
   trainer=cpu +trainer.max_epochs=20 hydra.run.dir=outputs/clf_train_otcfm_1025
 
-# 4. Generate the OT-CFM cells on 1.025, then evaluate with the classifier
+# 4. Generate the OT-CFM cells on 1.025 (gene space + raw coords)
 python -m paired_slides_eval.generate generator=otcfm \
   target=$DATA/adata_Zhuang_Zhuang-ABCA-1.025.h5ad \
-  source=$DATA/adata_Zhuang_Zhuang-ABCA-1.025.h5ad \
   checkpoint=$FM/outputs/cfm_mouse_pca5_1025/ckpt_final.pt \
   generator.fm_root=$FM generated_out=artifacts/otcfm_1025/generated.h5ad
 
+# 5. Evaluate against the SHARED pair pkl: project genes (--shared_pca) + standardise coords; one
+#    classifier; fixed (model-independent) ct/acc_real
 python -m paired_slides_eval.evaluate \
-  --target $DATA/adata_Zhuang_Zhuang-ABCA-1.025.h5ad \
-  --generated artifacts/otcfm_1025/generated.h5ad \
-  --classifier artifacts/otcfm_1025/classifier.ckpt \
-  --ct_key class --n_pcs 50 --out reports/otcfm_1025/metrics.csv
+  --target data/abca_1025_pair.pkl --generated artifacts/otcfm_1025/generated.h5ad \
+  --classifier outputs/clf_train_otcfm_1025/checkpoints/last.ckpt --ct_key class \
+  --shared_pca --standardize_coords --ct_real_reference fixed \
+  --out reports/otcfm_1025/metrics.csv
 ```

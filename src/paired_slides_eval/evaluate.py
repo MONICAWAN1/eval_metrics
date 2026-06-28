@@ -57,6 +57,8 @@ def evaluate(
     mmd_max_n: int = 2000,
     ot_max_n: int = 4000,
     moran_n_neighs: int = 6,
+    ct_real_reference: str = "paired",
+    ct_real_n: int = 2000,
 ) -> dict:
     """Compute every applicable metric for ``generated`` vs. ``target`` and return a flat dict.
 
@@ -77,6 +79,12 @@ def evaluate(
     ``auto_niche_max`` to cap how many generated cells are used as niche centroids. ``regression``
     needs cell-for-cell matched ground truth, which a flat slide cannot provide, so it stays skipped
     for a flat slide regardless.
+
+    ``ct_real_reference`` controls how ``ct/acc_real`` (in the ``ct_gap`` group) is measured:
+    ``"paired"`` (default) scores the real niches paired to the generated centroids — model-dependent;
+    ``"fixed"`` scores a seeded, model-independent sample of ``ct_real_n`` real target centroids, so
+    ``acc_real`` is one constant across models and only ``acc_gen``/``acc_gap`` vary (use this for
+    cross-model comparison tables). ``"fixed"`` needs the target's ``ct`` labels.
     """
     out: dict[str, float] = {}
     skipped: list[str] = []
@@ -228,6 +236,28 @@ def evaluate(
                     n_neighbors=classifier_n_neighbors,
                 )
             )
+            # Optionally replace the (model-dependent, paired) acc_real with a fixed, seeded sample of
+            # real target niches so acc_real is one constant across models — only acc_gen then varies.
+            if ct_real_reference == "fixed" and target.ct is not None:
+                from paired_slides_eval.metrics.classifier_gap import fixed_reference_accuracy
+
+                p = f"{prefix}/" if prefix else ""
+                acc_real = fixed_reference_accuracy(
+                    target.x,
+                    target.pos,
+                    target.ct,
+                    classifier,
+                    spatial=classifier_spatial,
+                    n_neighbors=classifier_n_neighbors,
+                    n_centroids=ct_real_n,
+                    seed=seed,
+                )
+                out[f"{p}ct/acc_real"] = acc_real
+                out[f"{p}ct/acc_gap"] = abs(acc_real - out[f"{p}ct/acc_gen"])
+                notes.append(
+                    f"ct/acc_real from a fixed seeded sample of {ct_real_n} real target centroids "
+                    "(model-independent), not the generated-centroid pairing"
+                )
         else:
             skipped.append(
                 "ct_gap (needs `classifier`, paired niches `gt_x/gt_pos` and true centroid labels "
@@ -237,6 +267,27 @@ def evaluate(
     out["_skipped"] = skipped
     out["_notes"] = notes
     return out
+
+
+def _standardize_generated_coords(generated, coord_transform):
+    """Map a generated slide/niches' coordinates into the target's standardised frame.
+
+    For a model that emits **raw** coordinates (the OT-CFM baseline) evaluated against a shared-PCA
+    target pickle, this puts the generated coords in the same per-slide standardised frame the niche
+    models and the classifier live in, so ``psd``/``spd``/``moran``/``c2st`` and the niche pairing are
+    on a common scale. No-op when ``coord_transform`` is ``None``. Only the *generated* coordinates are
+    touched — paired ``gt_pos`` already comes from the target (already standardised).
+    """
+    if coord_transform is None:
+        return generated
+    if isinstance(generated, GeneratedSlide):
+        return GeneratedSlide(x=generated.x, pos=coord_transform.transform(generated.pos))
+    b, n, _ = generated.pos.shape
+    pos = coord_transform.transform(generated.pos.reshape(-1, generated.pos.shape[-1]))
+    return GeneratedNiches(
+        x=generated.x, pos=pos.reshape(b, n, -1), gt_x=generated.gt_x,
+        gt_pos=generated.gt_pos, gt_ct=generated.gt_ct,
+    )
 
 
 def evaluate_files(
@@ -250,6 +301,9 @@ def evaluate_files(
     expr_key: str | None = None,
     spatial_key: str = "spatial",
     seed: int = 0,
+    shared_pca: bool = False,
+    standardize_coords: bool = False,
+    apply_lognorm: bool = True,
     **evaluate_kwargs,
 ) -> dict:
     """Evaluate generated cells against a target slide straight from files — the one-call front door.
@@ -269,18 +323,32 @@ def evaluate_files(
             basis. Leave ``None`` only if target and generated are already in the same space.
         classifier: a ready classifier module, or a path to a ``.ckpt`` (enables the ``ct/*``
             metrics); ``None`` skips them.
-        groups / seed / **evaluate_kwargs: forwarded to :func:`evaluate`.
+        shared_pca: for a ``.pkl`` target — reconstruct its NicheFlow gene -> whitened-X_pca recipe and
+            project gene-space generated cells (e.g. OT-CFM) into the *same* basis the niche models
+            (CFM/VFM) trained in (already-reduced cells pass through). This is the cross-model knob:
+            point every model at one shared pickle + classifier to get comparable metrics.
+        standardize_coords: also map the generated **raw** coordinates into the target's standardised
+            frame (needed for a model that emits raw coords, e.g. OT-CFM; leave off for NicheFlow
+            output, whose coords are already standardised). Needs ``shared_pca`` + a ``.pkl`` target.
+        apply_lognorm: forwarded to ``SharedGenePCA`` — set ``False`` if the gene-space cells are
+            already log-normalised (see ``docs/comparability_plan.md``). Only used with ``shared_pca``.
+        groups / seed / **evaluate_kwargs: forwarded to :func:`evaluate` (e.g.
+            ``ct_real_reference="fixed"`` for a cross-model-comparable ``ct/acc_real``).
 
     Returns the flat ``{prefix/group/metric: value}`` dict (plus ``_skipped`` / ``_notes``).
     """
     if isinstance(target, str) and target.endswith(".pkl"):
-        target_slide = TargetSlide.from_dataclass(target)
+        target_slide = TargetSlide.from_dataclass(
+            target, shared_pca=shared_pca, apply_lognorm=apply_lognorm
+        )
     else:
         target_slide = TargetSlide.from_anndata(
             target, ct_key=ct_key, expr_key=expr_key, spatial_key=spatial_key, n_pcs=n_pcs
         )
 
     gen = _load_generated(generated).project(target_slide.pca)
+    if standardize_coords:
+        gen = _standardize_generated_coords(gen, target_slide.coord_transform)
 
     clf = classifier
     if isinstance(classifier, str):
@@ -468,6 +536,38 @@ def _main() -> None:
     ap.add_argument(
         "--n_pcs", type=int, default=None, help="fit a PCA on the target to n PCs and project"
     )
+    # Cross-model comparability: point every model at ONE shared preprocessed-slide .pkl + ONE
+    # classifier so the metrics are on a common scale (see docs/comparability_plan.md).
+    ap.add_argument(
+        "--shared_pca",
+        action="store_true",
+        help="for a .pkl target: project gene-space generated cells (e.g. OT-CFM) through the "
+        "pickle's stored NicheFlow gene->whitened-X_pca recipe, so they share the basis the niche "
+        "models (CFM/VFM) trained in (already-reduced cells pass through unchanged)",
+    )
+    ap.add_argument(
+        "--standardize_coords",
+        action="store_true",
+        help="map the generated RAW coordinates into the target's standardised frame (needed for "
+        "OT-CFM; leave off for NicheFlow output, whose coords are already standardised). Requires "
+        "--shared_pca + a .pkl target",
+    )
+    ap.add_argument(
+        "--no_apply_lognorm",
+        action="store_true",
+        help="with --shared_pca: do NOT re-apply normalize_total+log1p to the gene-space cells (set "
+        "this if the generated expression is already log-normalised; see docs/comparability_plan.md)",
+    )
+    ap.add_argument(
+        "--ct_real_reference",
+        default="paired",
+        choices=("paired", "fixed"),
+        help="how ct/acc_real is measured: 'paired' (default, model-dependent) or 'fixed' (a seeded "
+        "model-independent sample of real target centroids — use for cross-model comparison tables)",
+    )
+    ap.add_argument(
+        "--ct_real_n", type=int, default=2000, help="centroids sampled when --ct_real_reference fixed"
+    )
     # Spatial classifier net hyperparameters (must match training; only used with --classifier).
     ap.add_argument("--hidden_dim", type=int, default=64)
     ap.add_argument("--num_heads", type=int, default=4)
@@ -475,8 +575,19 @@ def _main() -> None:
     ap.add_argument("--no_mask_centroid", action="store_true", help="ablation: keep the centroid")
     args = ap.parse_args()
 
-    if str(args.target).endswith(".pkl"):
-        target = TargetSlide.from_dataclass(args.target, timepoint=args.timepoint)
+    is_pkl = str(args.target).endswith(".pkl")
+    if (args.shared_pca or args.standardize_coords) and not is_pkl:
+        ap.error("--shared_pca / --standardize_coords require a preprocessed-slide .pkl target")
+    if args.standardize_coords and not args.shared_pca:
+        ap.error("--standardize_coords requires --shared_pca (the standardiser comes with it)")
+
+    if is_pkl:
+        target = TargetSlide.from_dataclass(
+            args.target,
+            timepoint=args.timepoint,
+            shared_pca=args.shared_pca,
+            apply_lognorm=not args.no_apply_lognorm,
+        )
     else:
         target = TargetSlide.from_anndata(
             args.target,
@@ -488,6 +599,8 @@ def _main() -> None:
             n_pcs=args.n_pcs,
         )
     generated = _load_generated(args.generated).project(target.pca)
+    if args.standardize_coords:
+        generated = _standardize_generated_coords(generated, target.coord_transform)
 
     classifier = None
     if args.classifier is not None:
@@ -502,7 +615,15 @@ def _main() -> None:
         )
 
     groups = tuple(args.groups) if args.groups else ALL_GROUPS
-    res = evaluate(target, generated, classifier=classifier, groups=groups, seed=args.seed)
+    res = evaluate(
+        target,
+        generated,
+        classifier=classifier,
+        groups=groups,
+        seed=args.seed,
+        ct_real_reference=args.ct_real_reference,
+        ct_real_n=args.ct_real_n,
+    )
 
     skipped = res.pop("_skipped")
     notes = res.pop("_notes", [])

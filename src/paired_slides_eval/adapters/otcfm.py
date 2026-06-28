@@ -143,8 +143,8 @@ class OTCFMGenerator(BaseGenerator):
                 lo, hi = ref_pos.min(axis=0), ref_pos.max(axis=0)
                 pos = rng.uniform(lo, hi, size=(n_gen, ref_pos.shape[1]))
 
-        # Return GENE-space cells (no projection): the evaluator fits ONE shared PCA on the target
-        # and projects both sides, so they share a basis. Run the decoupled `evaluate --n_pcs <N>`
-        # (or the combined pipeline) to set it. Pre-projecting here would NOT match a separately-fit
-        # target PCA (different rotation/sign) and breaks the standalone evaluate step.
+        # Return GENE-space cells (no projection): the evaluator reconciles feature space (fit a
+        # raw-gene PCA via `evaluate --n_pcs <N>`, or project through a shared-PCA target pickle via
+        # `evaluate --shared_pca`). Pre-projecting here would NOT match a separately-fit target PCA
+        # (different rotation/sign) and breaks the standalone evaluate step.
         return from_generated_arrays(gen_counts, pos, tgt, ct_key=self.ct_key, n_pcs=None)

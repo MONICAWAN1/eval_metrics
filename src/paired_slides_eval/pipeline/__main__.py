@@ -33,6 +33,10 @@ def main(cfg: DictConfig) -> None:
     generator = instantiate(cfg.generator)
     groups = tuple(cfg.groups) if cfg.get("groups") else ALL_GROUPS
 
+    evaluate_kwargs = {"ct_real_reference": cfg.get("ct_real_reference", "paired")}
+    if cfg.get("ct_real_n") is not None:
+        evaluate_kwargs["ct_real_n"] = cfg.get("ct_real_n")
+
     res = run_pipeline(
         cfg.source,
         cfg.target,
@@ -41,6 +45,7 @@ def main(cfg: DictConfig) -> None:
         classifier=cfg.get("classifier"),
         groups=groups,
         seed=cfg.get("seed", 0),
+        evaluate_kwargs=evaluate_kwargs,
     )
 
     if cfg.get("generated_out"):

@@ -237,6 +237,13 @@ class H5ADPreprocessor:
             test_microenvs=self.test_microenvs,
             aligned=False,
             pair_target_to_source=None,
+            # Shared-PCA recipe (set by preprocess_pair after the fit; absent on the classifier-slide
+            # path, which projects through an already-built basis). getattr keeps both paths working.
+            lognorm_mean=getattr(self, "_lognorm_mean", None),
+            lognorm_target_sum=getattr(self, "_lognorm_target_sum", None),
+            var_names=(
+                list(self._var_names) if getattr(self, "_var_names", None) is not None else None
+            ),
         )
 
     def save(self, filepath: str) -> None:

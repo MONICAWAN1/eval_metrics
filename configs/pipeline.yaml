@@ -15,6 +15,11 @@ checkpoint: ???   # trained model checkpoint, passed to the generator
 classifier: null  # optional classifier .ckpt enabling the ct/* groups
 groups: null      # subset of metric groups (null -> all)
 seed: 0
+# How ct/acc_real is measured: 'paired' (model-dependent) or 'fixed' (a seeded, model-independent
+# sample of real target centroids — use for cross-model-comparable ct/acc_real). See
+# docs/comparability_plan.md.
+ct_real_reference: paired
+ct_real_n: 2000
 
 # Outputs (model-keyed by the chosen generator; Hydra does not chdir, so these are repo-relative).
 # Saved metric CSV -> the tracked `reports/` tree; generated cells -> the gitignored `artifacts/` tree.

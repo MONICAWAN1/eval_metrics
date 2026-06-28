@@ -86,6 +86,10 @@ class TargetSlide:
     ct: np.ndarray | None = None
     n_classes: int | None = None
     pca: object | None = None
+    # Optional per-slide coordinate standardiser (set on the shared-PCA path). Lets a caller map a
+    # model's raw coordinates into this target's standardised frame before evaluating; ``None`` means
+    # coordinates are already in the target's frame (nothing to do).
+    coord_transform: object | None = None
 
     @property
     def moran_grid(self) -> tuple[np.ndarray, np.ndarray]:
@@ -139,17 +143,34 @@ class TargetSlide:
         return cls(x=x, pos=pos, ct=ct, n_classes=n_classes, pca=pca)
 
     @classmethod
-    def from_dataclass(cls, ds_or_path, *, timepoint: str | None = None) -> TargetSlide:
+    def from_dataclass(
+        cls,
+        ds_or_path,
+        *,
+        timepoint: str | None = None,
+        shared_pca: bool = False,
+        apply_lognorm: bool = True,
+    ) -> TargetSlide:
         """Build a ``TargetSlide`` from a **preprocessed-slide pickle** (an ``H5ADDatasetDataclass``).
 
-        For inputs already reduced to a shared PCA space: expression comes from ``X_pca`` (so
-        ``.pca`` is ``None`` and generated cells must already live in that space), coordinates from
-        ``coords`` and labels from ``ct``. This is the schema some generators (e.g. the NicheFlow
+        For inputs already reduced to a shared PCA space: expression comes from ``X_pca``, coordinates
+        from ``coords`` and labels from ``ct``. This is the schema some generators (e.g. the NicheFlow
         adapter) train and sample in; their output is then directly comparable.
 
         Args:
             ds_or_path: an ``H5ADDatasetDataclass`` or a path to a ``.pkl``.
             timepoint: which slide to use as the target (default: the last in ``timepoints_ordered``).
+            shared_pca: when ``True``, reconstruct the dataclass's gene -> X_pca recipe as a
+                :class:`~paired_slides_eval.data.shared_pca.SharedGenePCA` and attach it to ``.pca``,
+                plus a :class:`~paired_slides_eval.data.shared_pca.CoordStandardizer` on
+                ``.coord_transform``. This lets a model that emits **gene-space** cells + **raw**
+                coordinates (the OT-CFM baseline) be projected into the *same* whitened-PCA +
+                standardised-coord space the niche models live in — so all models share one basis.
+                Cells already reduced to that PCA pass through unchanged (dimension auto-detect). The
+                pickle must carry the recipe stats (``preprocess_pair`` persists them).
+            apply_lognorm: forwarded to ``SharedGenePCA`` — set ``False`` if the gene-space cells are
+                already log-normalised (see ``docs/comparability_plan.md``). Ignored unless
+                ``shared_pca``.
         """
         if hasattr(ds_or_path, "X_pca"):
             ds = ds_or_path
@@ -169,7 +190,19 @@ class TargetSlide:
             ct = np.array([ds.ct_to_int[c] for c in ct_raw], dtype=np.int64)
         n_classes = len(ds.ct_ordered)
 
-        return cls(x=x, pos=pos, ct=ct, n_classes=n_classes, pca=None)
+        pca = coord_transform = None
+        if shared_pca:
+            from paired_slides_eval.data.shared_pca import (
+                coord_standardizer_from_dataclass,
+                shared_pca_from_dataclass,
+            )
+
+            pca = shared_pca_from_dataclass(ds, apply_lognorm=apply_lognorm)
+            coord_transform = coord_standardizer_from_dataclass(ds, t)
+
+        return cls(
+            x=x, pos=pos, ct=ct, n_classes=n_classes, pca=pca, coord_transform=coord_transform
+        )
 
 
 @dataclass

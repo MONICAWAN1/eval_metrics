@@ -168,6 +168,7 @@ def run_pipeline(
     classifier=None,
     groups: tuple[str, ...] = ALL_GROUPS,
     seed: int = 0,
+    evaluate_kwargs: dict | None = None,
     **generator_kwargs,
 ) -> PipelineResult:
     """Generate with ``generator`` and run the metric suite. Returns a :class:`PipelineResult`.
@@ -181,6 +182,9 @@ def run_pipeline(
         classifier: optional fallback for the ``ct/*`` groups when the generator does not return
             one — either a ready classifier ``nn.Module`` or a path to a ``.ckpt``.
         groups / seed: forwarded to :func:`paired_slides_eval.evaluate.evaluate`.
+        evaluate_kwargs: extra keyword arguments forwarded to :func:`evaluate` (e.g.
+            ``ct_real_reference="fixed"`` for cross-model-comparable ``ct/acc_real``). Kept separate
+            from ``generator_kwargs`` so eval-only options do not leak into the generator call.
         **generator_kwargs: any extra options the ``generator`` accepts at call time.
     """
     out = generator(source=source, target=target, checkpoint=checkpoint, **generator_kwargs)
@@ -189,7 +193,10 @@ def run_pipeline(
     if clf is None and classifier is not None:
         clf = _resolve_classifier_arg(classifier, out.target)
 
-    metrics = evaluate(out.target, out.generated, classifier=clf, groups=groups, seed=seed)
+    metrics = evaluate(
+        out.target, out.generated, classifier=clf, groups=groups, seed=seed,
+        **(evaluate_kwargs or {}),
+    )
     return PipelineResult(metrics=metrics, target=out.target, generated=out.generated)
 
 

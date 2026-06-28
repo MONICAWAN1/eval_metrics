@@ -55,6 +55,19 @@ class H5ADDatasetDataclass:
     aligned: bool = False
     pair_target_to_source: dict[tuple[str, str], np.ndarray] | None = None
 
+    # === Shared-PCA recipe reconstruction (optional) === #
+    # Enough to rebuild the gene -> X_pca transform (``SharedGenePCA``) from this pickle alone, so
+    # cells generated in *gene space* (e.g. the OT-CFM baseline) can be projected into the very same
+    # whitened PCA basis the niche model trained in. ``None`` on pickles predating this (older pkls
+    # simply cannot back a ``SharedGenePCA`` and must be re-preprocessed to gain one).
+    #   lognorm_mean: per-gene mean of the log-normalised fit data (the PCA centering vector).
+    #   lognorm_target_sum: the ``normalize_total`` target used at fit time (median of fit per-cell
+    #       totals); reused so new cells are normalised to the *same* scale, not their own median.
+    #   var_names: the gene-panel order the PCA was fit on; new cells are reordered to it.
+    lognorm_mean: np.ndarray | None = None
+    lognorm_target_sum: float | None = None
+    var_names: list | None = None
+
 
 def load_h5ad_dataset_dataclass(filepath: str) -> H5ADDatasetDataclass:
     fp = Path(filepath)
