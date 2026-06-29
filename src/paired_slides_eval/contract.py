@@ -148,30 +148,33 @@ class TargetSlide:
         ds_or_path,
         *,
         timepoint: str | None = None,
-        shared_pca: bool = False,
+        shared_pca: bool | str = "auto",
         apply_lognorm: bool = True,
     ) -> TargetSlide:
         """Build a ``TargetSlide`` from a **preprocessed-slide pickle** (an ``H5ADDatasetDataclass``).
 
-        For inputs already reduced to a shared PCA space: expression comes from ``X_pca``, coordinates
-        from ``coords`` and labels from ``ct``. This is the schema some generators (e.g. the NicheFlow
-        adapter) train and sample in; their output is then directly comparable.
+        Expression comes from ``X_pca`` (whitened shared PCA), coordinates from ``coords``
+        (standardised), labels from ``ct``. When the pickle also carries the gene->X_pca **recipe**
+        (``preprocess_pair`` persists it), this reconstructs a
+        :class:`~paired_slides_eval.data.shared_pca.SharedGenePCA` on ``.pca`` and a
+        :class:`~paired_slides_eval.data.shared_pca.CoordStandardizer` on ``.coord_transform`` — so a
+        model that emits **gene-space** cells + **raw** coords (the OT-CFM baseline) is projected into
+        the *same* basis the niche models live in, while already-reduced cells pass through unchanged.
 
         Args:
             ds_or_path: an ``H5ADDatasetDataclass`` or a path to a ``.pkl``.
             timepoint: which slide to use as the target (default: the last in ``timepoints_ordered``).
-            shared_pca: when ``True``, reconstruct the dataclass's gene -> X_pca recipe as a
-                :class:`~paired_slides_eval.data.shared_pca.SharedGenePCA` and attach it to ``.pca``,
-                plus a :class:`~paired_slides_eval.data.shared_pca.CoordStandardizer` on
-                ``.coord_transform``. This lets a model that emits **gene-space** cells + **raw**
-                coordinates (the OT-CFM baseline) be projected into the *same* whitened-PCA +
-                standardised-coord space the niche models live in — so all models share one basis.
-                Cells already reduced to that PCA pass through unchanged (dimension auto-detect). The
-                pickle must carry the recipe stats (``preprocess_pair`` persists them).
+            shared_pca: ``"auto"`` (default) attaches the recipe transform **iff the pickle carries
+                it**, else leaves ``.pca = None`` (a pre-recipe pickle still works for already-reduced
+                cells). ``True`` forces it (raises if the recipe is absent); ``False`` never attaches.
             apply_lognorm: forwarded to ``SharedGenePCA`` — set ``False`` if the gene-space cells are
-                already log-normalised (see ``docs/comparability_plan.md``). Ignored unless
-                ``shared_pca``.
+                already log-normalised. Used only when the transform is attached.
         """
+        from paired_slides_eval.data.shared_pca import (
+            coord_standardizer_from_dataclass,
+            shared_pca_from_dataclass,
+        )
+
         if hasattr(ds_or_path, "X_pca"):
             ds = ds_or_path
         else:
@@ -191,14 +194,14 @@ class TargetSlide:
         n_classes = len(ds.ct_ordered)
 
         pca = coord_transform = None
-        if shared_pca:
-            from paired_slides_eval.data.shared_pca import (
-                coord_standardizer_from_dataclass,
-                shared_pca_from_dataclass,
-            )
-
-            pca = shared_pca_from_dataclass(ds, apply_lognorm=apply_lognorm)
-            coord_transform = coord_standardizer_from_dataclass(ds, t)
+        if shared_pca:  # True or "auto"
+            try:
+                pca = shared_pca_from_dataclass(ds, apply_lognorm=apply_lognorm)
+                coord_transform = coord_standardizer_from_dataclass(ds, t)
+            except ValueError:
+                if shared_pca != "auto":
+                    raise  # explicit shared_pca=True on a pickle without the recipe -> surface it
+                pca = coord_transform = None  # "auto" on a pre-recipe pickle -> plain reduced target
 
         return cls(
             x=x, pos=pos, ct=ct, n_classes=n_classes, pca=pca, coord_transform=coord_transform

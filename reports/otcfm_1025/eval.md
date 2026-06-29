@@ -139,11 +139,10 @@ python -m paired_slides_eval.generate generator=otcfm \
   checkpoint=$FM/outputs/cfm_mouse_pca5_1025/ckpt_final.pt \
   generator.fm_root=$FM generated_out=artifacts/otcfm_1025/generated.h5ad
 
-# 5. Evaluate against the SHARED pair pkl: project genes (--shared_pca) + standardise coords; one
-#    classifier; fixed (model-independent) ct/acc_real
+# 5. Evaluate against the SHARED pair pkl. Gene-space cells project automatically and coords are
+#    auto-reconciled (--coords auto, the default); one classifier; fixed ct/acc_real.
 python -m paired_slides_eval.evaluate \
   --target data/abca_1025_pair.pkl --generated artifacts/otcfm_1025/generated.h5ad \
   --classifier outputs/clf_train_otcfm_1025/checkpoints/last.ckpt --ct_key class \
-  --shared_pca --standardize_coords --ct_real_reference fixed \
-  --out reports/otcfm_1025/metrics.csv
+  --ct_real_reference fixed --out reports/otcfm_1025/metrics.csv
 ```

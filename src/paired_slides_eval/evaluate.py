@@ -272,11 +272,10 @@ def evaluate(
 def _standardize_generated_coords(generated, coord_transform):
     """Map a generated slide/niches' coordinates into the target's standardised frame.
 
-    For a model that emits **raw** coordinates (the OT-CFM baseline) evaluated against a shared-PCA
-    target pickle, this puts the generated coords in the same per-slide standardised frame the niche
-    models and the classifier live in, so ``psd``/``spd``/``moran``/``c2st`` and the niche pairing are
-    on a common scale. No-op when ``coord_transform`` is ``None``. Only the *generated* coordinates are
-    touched — paired ``gt_pos`` already comes from the target (already standardised).
+    Puts the generated coords in the same per-slide standardised frame the niche models and the
+    classifier live in, so ``psd``/``spd``/``moran``/``c2st`` and the niche pairing are on a common
+    scale. No-op when ``coord_transform`` is ``None``. Only the *generated* coordinates are touched —
+    paired ``gt_pos`` already comes from the target (already standardised).
     """
     if coord_transform is None:
         return generated
@@ -290,6 +289,61 @@ def _standardize_generated_coords(generated, coord_transform):
     )
 
 
+def _detect_coord_space(gen_pos: np.ndarray, coord_transform) -> str:
+    """Detect whether ``gen_pos`` is in the target's RAW frame (-> standardise) or already standardised.
+
+    Standardised coords have per-axis std ~1; raw coords have std ~ the target's raw coord std (stored
+    on ``coord_transform``). Picks whichever the generated per-axis std is closer to (log-ratio), so it
+    is robust whether the raw std is large (the usual case) or itself near 1 (then either choice is a
+    no-op anyway). Returns ``"standardize"`` or ``"passthrough"``.
+    """
+    eps = 1e-8
+    gen_std = np.asarray(gen_pos, dtype=np.float64).std(axis=0) + eps
+    raw_std = np.asarray(coord_transform.std, dtype=np.float64) + eps
+    to_standardised = np.abs(np.log(gen_std)).mean()       # distance to std == 1
+    to_raw = np.abs(np.log(gen_std / raw_std)).mean()      # distance to the target's raw std
+    return "passthrough" if to_standardised <= to_raw else "standardize"
+
+
+def _reconcile_generated(generated, target, *, coords: str = "auto"):
+    """Bring ``generated`` coordinates into the target's frame; return ``(generated, notes)``.
+
+    Expression is already reconciled by the caller via ``.project(target.pca)`` (gene-space ->
+    projected, already-reduced -> passthrough). This handles the *coordinate* half centrally so every
+    metric sees a consistent frame:
+
+    * ``"auto"`` (default) — if the target carries a standardised coord frame
+      (``target.coord_transform``, set for shared-PCA pickles), detect whether the generated coords are
+      raw or already standardised and reconcile accordingly, recording the decision in the notes. This
+      removes the old silent-mismatch footgun (forgetting to standardise OT-CFM coords).
+    * ``"standardize"`` / ``"passthrough"`` — force the choice.
+    """
+    if coords not in ("auto", "standardize", "passthrough"):
+        raise ValueError(f"coords must be auto|standardize|passthrough, got {coords!r}")
+    notes: list[str] = []
+    ct = target.coord_transform
+    if ct is None:
+        if coords == "standardize":
+            raise ValueError(
+                "coords='standardize' needs a shared-PCA .pkl target (it carries the coord frame); "
+                "the given target has none."
+            )
+        return generated, notes
+
+    decision = coords
+    if coords == "auto":
+        decision = _detect_coord_space(generated.flat_pos, ct)
+        gs = np.round(np.asarray(generated.flat_pos).std(axis=0), 2).tolist()
+        rs = np.round(np.asarray(ct.std), 2).tolist()
+        notes.append(
+            f"coords auto -> {decision} (generated per-axis std {gs} vs target raw std {rs}; "
+            "standardised coords have std ~1)"
+        )
+    if decision == "standardize":
+        generated = _standardize_generated_coords(generated, ct)
+    return generated, notes
+
+
 def evaluate_files(
     target,
     generated,
@@ -297,66 +351,77 @@ def evaluate_files(
     ct_key: str | None = None,
     n_pcs: int | None = None,
     classifier=None,
+    classifier_kwargs: dict | None = None,
     groups: tuple[str, ...] = ALL_GROUPS,
     expr_key: str | None = None,
     spatial_key: str = "spatial",
+    timepoint: str | None = None,
+    timepoint_key: str | None = None,
     seed: int = 0,
-    shared_pca: bool = False,
-    standardize_coords: bool = False,
+    coords: str = "auto",
     apply_lognorm: bool = True,
     **evaluate_kwargs,
 ) -> dict:
     """Evaluate generated cells against a target slide straight from files — the one-call front door.
 
-    This is the headline entry point for the common case: you generated cells with your own model
-    (in your own repo) and just want the metrics. It loads both sides, puts them in a shared feature
-    space, and runs :func:`evaluate` — no dataclasses to assemble by hand.
+    The single entry point: it loads both sides, reconciles them into one space, and runs
+    :func:`evaluate`. The CLI (``python -m paired_slides_eval.evaluate``) is a thin wrapper over this.
+
+    Space reconciliation is automatic, so the *same* call works for every model:
+
+    * **Expression** — for a ``.pkl`` target carrying the shared-PCA recipe, gene-space generated cells
+      (e.g. OT-CFM) are projected into the whitened shared basis and already-reduced cells (NicheFlow)
+      pass through (dimension auto-detect in :meth:`~paired_slides_eval.contract.GeneratedSlide.project`).
+    * **Coordinates** — ``coords="auto"`` detects whether the generated coords are raw or already
+      standardised and maps them into the target's frame, logging the decision (no silent mismatch).
 
     Args:
-        target: the target slide — a ``.h5ad`` (raw genes + ``obsm['spatial']``) or an ``AnnData``;
-            a ``.pkl`` is also accepted (a preprocessed-slide pickle, via
-            :meth:`~paired_slides_eval.contract.TargetSlide.from_dataclass`).
-        generated: the generated cells as a path — ``.h5ad`` (flat ``X``+``obsm['spatial']`` or
-            niche-shaped with ``obs['niche_id']``), ``.npz``, or ``.pkl``.
-        ct_key: ``obs`` column with cell types on the target (needed for the ``ct/*`` metrics).
-        n_pcs: fit a PCA on the target to ``n_pcs`` and project both sides into it so they share a
-            basis. Leave ``None`` only if target and generated are already in the same space.
-        classifier: a ready classifier module, or a path to a ``.ckpt`` (enables the ``ct/*``
-            metrics); ``None`` skips them.
-        shared_pca: for a ``.pkl`` target — reconstruct its NicheFlow gene -> whitened-X_pca recipe and
-            project gene-space generated cells (e.g. OT-CFM) into the *same* basis the niche models
-            (CFM/VFM) trained in (already-reduced cells pass through). This is the cross-model knob:
-            point every model at one shared pickle + classifier to get comparable metrics.
-        standardize_coords: also map the generated **raw** coordinates into the target's standardised
-            frame (needed for a model that emits raw coords, e.g. OT-CFM; leave off for NicheFlow
-            output, whose coords are already standardised). Needs ``shared_pca`` + a ``.pkl`` target.
-        apply_lognorm: forwarded to ``SharedGenePCA`` — set ``False`` if the gene-space cells are
-            already log-normalised (see ``docs/comparability_plan.md``). Only used with ``shared_pca``.
+        target: the target slide — a preprocessed-slide ``.pkl`` (the recommended, cross-model
+            comparable path: whitened shared PCA + standardised coords). Raise an error when a ``.h5ad``/
+            ``AnnData``is loaded since it's not comparable across models.
+        generated: the generated cells as a path — ``.h5ad`` (flat or niche-shaped), ``.npz``, or
+            ``.pkl``.
+        ct_key: ``obs`` column with cell types (``.h5ad`` target only; a ``.pkl`` already has labels).
+        n_pcs: ``.h5ad`` target only — fit a per-target PCA to ``n_pcs`` (legacy path).
+        classifier: a ready classifier module, or a path to a ``.ckpt`` (enables the ``ct/*`` groups).
+        classifier_kwargs: net hyperparameters for ``build_spatial_classifier`` when ``classifier`` is
+            a path (``hidden_dim`` / ``num_heads`` / ``coord_dim`` / ``mask_centroid``).
+        coords: ``"auto"`` (default) / ``"standardize"`` / ``"passthrough"`` — how generated coords are
+            reconciled to the target frame (see :func:`_reconcile_generated`).
+        apply_lognorm: forwarded to the shared-PCA recipe — ``False`` if the generated gene-space cells
+            are already log-normalised (see ``docs/comparability_plan.md``).
         groups / seed / **evaluate_kwargs: forwarded to :func:`evaluate` (e.g.
             ``ct_real_reference="fixed"`` for a cross-model-comparable ``ct/acc_real``).
 
-    Returns the flat ``{prefix/group/metric: value}`` dict (plus ``_skipped`` / ``_notes``).
+    Returns the flat ``{prefix/group/metric: value}`` dict (plus ``_skipped`` / ``_notes`` and the
+    private ``_target_shape`` / ``_generated_shape`` used by the CLI to print a header).
     """
+    notes: list[str] = []
     if isinstance(target, str) and target.endswith(".pkl"):
         target_slide = TargetSlide.from_dataclass(
-            target, shared_pca=shared_pca, apply_lognorm=apply_lognorm
+            target, timepoint=timepoint, apply_lognorm=apply_lognorm
         )
     else:
-        target_slide = TargetSlide.from_anndata(
-            target, ct_key=ct_key, expr_key=expr_key, spatial_key=spatial_key, n_pcs=n_pcs
+        raise ValueError(
+            "target loaded from AnnData with a per-target PCA — NOT cross-model comparable; pass a "
+            "shared preprocess_pair .pkl as the target to compare models."
         )
 
     gen = _load_generated(generated).project(target_slide.pca)
-    if standardize_coords:
-        gen = _standardize_generated_coords(gen, target_slide.coord_transform)
+    gen, coord_notes = _reconcile_generated(gen, target_slide, coords=coords)
 
     clf = classifier
     if isinstance(classifier, str):
         clf = build_spatial_classifier(
-            classifier, target_slide.x.shape[1], target_slide.n_classes
+            classifier, target_slide.x.shape[1], target_slide.n_classes,
+            **(classifier_kwargs or {}),
         )
 
-    return evaluate(target_slide, gen, classifier=clf, groups=groups, seed=seed, **evaluate_kwargs)
+    res = evaluate(target_slide, gen, classifier=clf, groups=groups, seed=seed, **evaluate_kwargs)
+    res["_notes"] = notes + coord_notes + res.get("_notes", [])
+    res["_target_shape"] = tuple(target_slide.x.shape)
+    res["_generated_shape"] = tuple(gen.x.shape)
+    return res
 
 
 def _has_paired_niches(generated) -> bool:
@@ -534,29 +599,25 @@ def _main() -> None:
     )
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument(
-        "--n_pcs", type=int, default=None, help="fit a PCA on the target to n PCs and project"
-    )
-    # Cross-model comparability: point every model at ONE shared preprocessed-slide .pkl + ONE
-    # classifier so the metrics are on a common scale (see docs/comparability_plan.md).
-    ap.add_argument(
-        "--shared_pca",
-        action="store_true",
-        help="for a .pkl target: project gene-space generated cells (e.g. OT-CFM) through the "
-        "pickle's stored NicheFlow gene->whitened-X_pca recipe, so they share the basis the niche "
-        "models (CFM/VFM) trained in (already-reduced cells pass through unchanged)",
+        "--n_pcs",
+        type=int,
+        default=None,
+        help="for a .h5ad target only: fit a per-target PCA to n PCs (legacy, NOT cross-model "
+        "comparable). For comparison, pass a shared preprocess_pair .pkl as --target instead.",
     )
     ap.add_argument(
-        "--standardize_coords",
-        action="store_true",
-        help="map the generated RAW coordinates into the target's standardised frame (needed for "
-        "OT-CFM; leave off for NicheFlow output, whose coords are already standardised). Requires "
-        "--shared_pca + a .pkl target",
+        "--coords",
+        default="auto",
+        choices=("auto", "standardize", "passthrough"),
+        help="how generated coords are reconciled to a .pkl target's standardised frame: 'auto' "
+        "(default — detect raw vs standardised and map accordingly), or force one. Replaces the old "
+        "--standardize_coords flag.",
     )
     ap.add_argument(
         "--no_apply_lognorm",
         action="store_true",
-        help="with --shared_pca: do NOT re-apply normalize_total+log1p to the gene-space cells (set "
-        "this if the generated expression is already log-normalised; see docs/comparability_plan.md)",
+        help="for a shared-PCA .pkl target: do NOT re-apply normalize_total+log1p to gene-space cells "
+        "(set this if the generated expression is already log-normalised; see comparability_plan.md)",
     )
     ap.add_argument(
         "--ct_real_reference",
@@ -575,64 +636,42 @@ def _main() -> None:
     ap.add_argument("--no_mask_centroid", action="store_true", help="ablation: keep the centroid")
     args = ap.parse_args()
 
-    is_pkl = str(args.target).endswith(".pkl")
-    if (args.shared_pca or args.standardize_coords) and not is_pkl:
-        ap.error("--shared_pca / --standardize_coords require a preprocessed-slide .pkl target")
-    if args.standardize_coords and not args.shared_pca:
-        ap.error("--standardize_coords requires --shared_pca (the standardiser comes with it)")
-
-    if is_pkl:
-        target = TargetSlide.from_dataclass(
-            args.target,
-            timepoint=args.timepoint,
-            shared_pca=args.shared_pca,
-            apply_lognorm=not args.no_apply_lognorm,
-        )
-    else:
-        target = TargetSlide.from_anndata(
-            args.target,
-            timepoint=args.timepoint,
-            expr_key=args.expr_key,
-            spatial_key=args.spatial_key,
-            ct_key=args.ct_key,
-            timepoint_key=args.timepoint_key,
-            n_pcs=args.n_pcs,
-        )
-    generated = _load_generated(args.generated).project(target.pca)
-    if args.standardize_coords:
-        generated = _standardize_generated_coords(generated, target.coord_transform)
-
-    classifier = None
-    if args.classifier is not None:
-        classifier = build_spatial_classifier(
-            args.classifier,
-            target.x.shape[1],
-            target.n_classes,
+    res = evaluate_files(
+        args.target,
+        args.generated,
+        ct_key=args.ct_key,
+        n_pcs=args.n_pcs,
+        classifier=args.classifier,
+        classifier_kwargs=dict(
             hidden_dim=args.hidden_dim,
             num_heads=args.num_heads,
             coord_dim=args.coord_dim,
             mask_centroid=not args.no_mask_centroid,
-        )
-
-    groups = tuple(args.groups) if args.groups else ALL_GROUPS
-    res = evaluate(
-        target,
-        generated,
-        classifier=classifier,
-        groups=groups,
+        ),
+        groups=tuple(args.groups) if args.groups else ALL_GROUPS,
+        expr_key=args.expr_key,
+        spatial_key=args.spatial_key,
+        timepoint=args.timepoint,
+        timepoint_key=args.timepoint_key,
         seed=args.seed,
+        coords=args.coords,
+        apply_lognorm=not args.no_apply_lognorm,
         ct_real_reference=args.ct_real_reference,
         ct_real_n=args.ct_real_n,
     )
 
     skipped = res.pop("_skipped")
     notes = res.pop("_notes", [])
+    tshape = res.pop("_target_shape", None)
+    gshape = res.pop("_generated_shape", None)
     rows = sorted(res.items())
-    print(f"target: {target.x.shape[0]} cells, {target.x.shape[1]} features")
-    if generated.x.ndim == 3:
-        print(f"generated: {generated.x.shape[0]} niches x {generated.x.shape[1]} points")
-    else:
-        print(f"generated: {generated.x.shape[0]} cells, {generated.x.shape[1]} feats (flat slide)")
+    if tshape is not None:
+        print(f"target: {tshape[0]} cells, {tshape[1]} features")
+    if gshape is not None:
+        if len(gshape) == 3:
+            print(f"generated: {gshape[0]} niches x {gshape[1]} points")
+        else:
+            print(f"generated: {gshape[0]} cells, {gshape[1]} feats (flat slide)")
     for k, v in rows:
         print(f"{k:24s} {v:.4f}")
     if notes:

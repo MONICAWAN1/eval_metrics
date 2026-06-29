@@ -113,13 +113,13 @@ python -m paired_slides_eval.generate generator=otcfm \
   checkpoint=$FM/outputs/cfm_mouse_pca5/ckpt_last.pt \
   generated_out=artifacts/otcfm/generated.h5ad
 
-# 4. Evaluate against the SHARED pair pkl: project genes (--shared_pca) + standardise coords; one
-#    classifier; fixed (model-independent) ct/acc_real
+# 4. Evaluate against the SHARED pair pkl. The .pkl carries the gene->X_pca recipe, so gene-space
+#    cells project automatically and coords are auto-reconciled (--coords auto, the default); one
+#    classifier; fixed (model-independent) ct/acc_real.
 python -m paired_slides_eval.evaluate \
   --target data/abca_pair.pkl --generated artifacts/otcfm/generated.h5ad \
   --classifier outputs/clf_train_otcfm/checkpoints/last.ckpt --ct_key class \
-  --shared_pca --standardize_coords --ct_real_reference fixed \
-  --out reports/otcfm/metrics.csv
+  --ct_real_reference fixed --out reports/otcfm/metrics.csv
 ```
 
 *(`artifacts/otcfm/generated.h5ad` is the OT-CFM output produced by `generate` — which now writes to

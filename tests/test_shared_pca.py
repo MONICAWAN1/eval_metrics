@@ -181,6 +181,55 @@ def test_target_from_dataclass_shared_pca_projects_and_standardizes():
     assert np.allclose(gen.pos, (raw_pos - [1.0, 2.0]) / [2.0, 4.0], atol=1e-5)
 
 
+def test_auto_coord_detection_and_reconcile():
+    """coords='auto' standardises raw generated coords and passes standardised ones through."""
+    from paired_slides_eval.contract import GeneratedSlide, TargetSlide
+    from paired_slides_eval.evaluate import _detect_coord_space, _reconcile_generated
+
+    ct = CoordStandardizer(mean=np.array([100.0, 200.0]), std=np.array([10.0, 20.0]))
+    rng = np.random.default_rng(0)
+    raw = rng.normal([100.0, 200.0], [10.0, 20.0], size=(500, 2))   # ~ target raw frame
+    standardized = rng.normal(0.0, 1.0, size=(500, 2))              # already ~ unit
+
+    assert _detect_coord_space(raw, ct) == "standardize"
+    assert _detect_coord_space(standardized, ct) == "passthrough"
+
+    target = TargetSlide(x=np.zeros((3, 4)), pos=np.zeros((3, 2)), coord_transform=ct)
+
+    out, notes = _reconcile_generated(GeneratedSlide(x=np.zeros((500, 4)), pos=raw), target, coords="auto")
+    assert np.allclose(out.pos.std(axis=0), 1.0, atol=0.3)  # mapped into the standardised frame
+    assert notes and "standardize" in notes[0]
+
+    out2, _ = _reconcile_generated(
+        GeneratedSlide(x=np.zeros((500, 4)), pos=standardized), target, coords="auto"
+    )
+    assert np.allclose(out2.pos, standardized)  # already standardised -> passthrough
+
+    # No coord frame on the target -> nothing to reconcile (legacy h5ad path)
+    bare = TargetSlide(x=np.zeros((3, 4)), pos=np.zeros((3, 2)))
+    out3, notes3 = _reconcile_generated(GeneratedSlide(x=np.zeros((5, 4)), pos=np.zeros((5, 2))), bare, coords="auto")
+    assert notes3 == []
+
+
+def test_from_dataclass_shared_pca_auto_falls_back_without_recipe():
+    """shared_pca='auto' attaches the transform iff the pickle carries the recipe (else pca=None)."""
+    from paired_slides_eval.contract import TargetSlide
+
+    bare = _FakeDS(
+        X_pca=np.zeros((4, 3)),
+        coords=np.zeros((4, 2)),
+        ct=np.array([0, 1, 0, 1]),
+        ct_ordered=["a", "b"],
+        ct_to_int={"a": 0, "b": 1},
+        timepoints_ordered=["A", "B"],
+        timepoint_indices={"B": np.arange(4)},
+        # no PCs / lognorm_* / stats recipe
+        PCs=None, lognorm_mean=None, lognorm_target_sum=None, var_names=None, stats={},
+    )
+    target = TargetSlide.from_dataclass(bare, shared_pca="auto")
+    assert target.pca is None and target.coord_transform is None  # graceful fallback, no raise
+
+
 def test_fixed_reference_accuracy_is_model_independent():
     torch = pytest.importorskip("torch")
     from paired_slides_eval.metrics.classifier_gap import fixed_reference_accuracy

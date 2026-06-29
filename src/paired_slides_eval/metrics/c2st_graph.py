@@ -82,10 +82,10 @@ def c2st_graph(
 ) -> tuple[float, float]:
     """Return ``(accuracy, roc_auc)`` of a 2-layer GCN separating real (0) from generated (1) cells.
 
-    Nodes are cells with **expression** features; one joint spatial kNN graph (``graph_k``
-    neighbours over the combined real+generated cloud) is how relative position enters. Both metrics
+    Nodes are cells with expression features; relative position is used to generate one joint spatial 
+    kNN graph (``graph_k``) neighbours over the combined real+generated cloud). Both metrics
     are the mean over ``n_folds`` stratified node folds. ``real_x`` is the reference for z-scoring
-    (pass the *real* sample), mirroring :func:`~paired_slides_eval.metrics.c2st.c2st`.
+    (pass the real sample), mirroring :func:`~paired_slides_eval.metrics.c2st.c2st`.
     """
     import torch
     from torch import nn
