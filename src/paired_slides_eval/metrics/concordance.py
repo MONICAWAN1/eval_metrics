@@ -32,9 +32,9 @@ from paired_slides_eval.metrics._common import (
     total_variation,
 )
 
-# Microenvironment size used only when neither the caller nor the loaded classifier supplies one
-# (e.g. a checkpoint predating the recorded value). Matches the training config default.
-_DEFAULT_N_NEIGHBORS = 32
+# KNN k used only when neither the caller nor the loaded classifier supplies one (e.g. a checkpoint
+# predating the recorded value). Matches the training config default.
+_DEFAULT_N_NEIGHBORS = 10
 
 
 def _resolve_n_neighbors(n_neighbors: int | None, classifier) -> int:
@@ -80,13 +80,12 @@ def cell_type_concordance(
             centroid at point 0.
         gt_x / gt_pos: the **paired real target** microenvironments (same centroids), same shapes.
         classifier: a frozen, neutral ``torch.nn.Module`` (trained on the held-out slide). Spatial
-            classifiers take the ``[expression | relative_position]`` point set
-            ``(B, k, n_pcs + coord)``; the gene-only classifier takes the centroid expression
-            ``(B, n_pcs)``.
+            classifiers take the **expression-only** KNN point set ``(B, k+1, n_pcs)`` (centroid at
+            point 0); the gene-only classifier takes the centroid expression ``(B, n_pcs)``.
         spatial: whether ``classifier`` is a spatial (microenvironment) net or gene-only.
-        n_neighbors: microenvironment size for the spatial classifier. ``None`` -> use the value
-            recorded on the classifier at training time (set by ``load_spatial_classifier``), so
-            eval matches training; falls back to 32 with a warning if neither is available.
+        n_neighbors: KNN ``k`` for the spatial classifier. ``None`` -> use the value recorded on the
+            classifier at training time (set by ``load_spatial_classifier``), so eval matches
+            training; falls back to 10 with a warning if neither is available.
         n_classes: number of cell types; inferred from ``classifier.output_dim`` if not given.
     """
     import torch
@@ -95,8 +94,8 @@ def cell_type_concordance(
 
     if spatial:
         k = _resolve_n_neighbors(n_neighbors, classifier)
-        feats_gen, _ = build_microenv_points(gen_x, gen_pos, k)
-        feats_real, _ = build_microenv_points(gt_x, gt_pos, k)
+        feats_gen = build_microenv_points(gen_x, gen_pos, k)
+        feats_real = build_microenv_points(gt_x, gt_pos, k)
     else:
         feats_gen, feats_real = gen_x[:, 0, :], gt_x[:, 0, :]
 

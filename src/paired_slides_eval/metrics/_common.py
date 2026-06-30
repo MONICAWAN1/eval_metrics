@@ -23,27 +23,55 @@ def nn_query(query: np.ndarray, ref: np.ndarray) -> tuple[np.ndarray, np.ndarray
     return idx, dist
 
 
-def build_microenv_points(
-    x: np.ndarray, pos: np.ndarray, k: int | None
-) -> tuple[np.ndarray, np.ndarray]:
-    """Turn microenvironment point clouds into ``[expression | relative_position]`` point sets.
+def knn_indices(coords: np.ndarray, k: int, *, centroids: np.ndarray | None = None) -> np.ndarray:
+    """``(B, k+1)`` KNN index array: each centroid's self (distance 0) at column 0, then its ``k``
+    nearest neighbours by Euclidean distance on ``coords``.
 
-    ``x`` / ``pos`` are ``(n_microenvs, n_points, *)`` with the centroid at point 0. Positions
-    are made relative to the centroid; if there are more than ``k`` points the ``k`` closest to
-    the centroid are kept (the centroid, distance 0, is always included). Returns the point sets
-    ``(n_microenvs, k, n_pcs + coord_dim)`` and the centroid positions ``(n_microenvs, coord)``.
+    ``k`` is the number of **neighbours** (so the niche has ``k + 1`` points); it is clamped to the
+    available neighbours (``len(coords) - 1``). ``centroids`` selects the query cells (default: all).
     """
-    centroid_pos = pos[:, :1, :]  # (n_microenvs, 1, coord)
-    rel_pos = pos - centroid_pos  # (n_microenvs, n_points, coord)
+    coords = np.asarray(coords, dtype=np.float64)
+    n = len(coords)
+    k_eff = int(min(k, n - 1))
+    tree = cKDTree(coords)
+    query = coords if centroids is None else coords[np.asarray(centroids)]
+    _, idx = tree.query(query, k=k_eff + 1)
+    return np.asarray(idx).reshape(len(query), k_eff + 1)
 
-    if k is not None and pos.shape[1] > k:
-        dist = np.linalg.norm(rel_pos, axis=-1)  # (n_microenvs, n_points)
-        idx = np.argsort(dist, axis=-1)[:, :k]  # (n_microenvs, k) closest first
+
+def build_knn_point_set(
+    coords: np.ndarray, expr: np.ndarray, k: int, *, centroids: np.ndarray | None = None
+) -> np.ndarray:
+    """Expression-only KNN microenvironments ``(B, k+1, n_feat)``, the centroid at index 0.
+
+    Each centroid + its ``k`` nearest neighbours (by ``coords``), gathering only the **expression**
+    rows from ``expr`` — coordinates pick membership, then are dropped (the classifier is
+    coordinate-blind). The single KNN-niche builder shared by the training dataset
+    (:class:`~paired_slides_eval.classifier.dataset.SpatialH5ADCTDataset`) and the eval-time
+    reconstruction (:func:`build_paired_niches_from_flat`).
+    """
+    idx = knn_indices(coords, k, centroids=centroids)
+    return np.asarray(expr)[idx]
+
+
+def build_microenv_points(x: np.ndarray, pos: np.ndarray, k: int | None) -> np.ndarray:
+    """Expression-only point set from a **pre-assembled** microenvironment.
+
+    ``x`` / ``pos`` are ``(n_microenvs, n_points, *)`` with the centroid at point 0. Keeps the
+    centroid + its ``k`` nearest *other* points (by distance to the centroid) and returns the
+    **expression** only ``(n_microenvs, k+1, n_feat)``; coordinates pick the k nearest, then are
+    dropped. ``k`` is the number of neighbours (niche size ``k+1``); ``None`` keeps all points.
+
+    Unlike :func:`build_knn_point_set` (which builds niches from a flat cloud), this sub-selects from
+    an already-grouped microenvironment — e.g. NicheFlow's generation niches, which carry more points
+    than the classifier's ``k``.
+    """
+    x = np.asarray(x)
+    if k is not None and pos.shape[1] > k + 1:
+        rel = np.linalg.norm(pos - pos[:, :1, :], axis=-1)  # (n_microenvs, n_points)
+        idx = np.argsort(rel, axis=-1)[:, : k + 1]  # centroid (dist 0) first, then k nearest
         x = np.take_along_axis(x, idx[..., None], axis=1)
-        rel_pos = np.take_along_axis(rel_pos, idx[..., None], axis=1)
-
-    points = np.concatenate([x, rel_pos], axis=-1)
-    return points, centroid_pos.squeeze(1)
+    return x
 
 
 def build_paired_niches_from_flat(
@@ -61,13 +89,13 @@ def build_paired_niches_from_flat(
     A whole-slide model emits cells with no niche structure, so the niche/classifier metrics have
     no ``(B, N, D)`` microenvironments to compare. This rebuilds them the same way the classifier
     was trained (:class:`~paired_slides_eval.classifier.dataset.SpatialH5ADCTDataset`): a niche is a
-    centroid cell plus its ``k - 1`` nearest spatial neighbours, centroid first.
+    centroid cell plus its ``k`` nearest spatial neighbours (KNN), centroid first.
 
     For each chosen generated centroid we build:
 
-    * the **generated** niche — the centroid + its ``k - 1`` nearest *generated* neighbours;
+    * the **generated** niche — the centroid + its ``k`` nearest *generated* neighbours;
     * the **paired real** niche — the real cell nearest to that centroid (by coordinates) + that
-      real cell's ``k - 1`` nearest *real* neighbours. This is the geometric stand-in for the
+      real cell's ``k`` nearest *real* neighbours. This is the geometric stand-in for the
       transport pairing a niche-aware model supplies via ``gt_x``/``gt_pos``.
 
     The generated and real slides must live in the **same coordinate frame** (as they already must
@@ -76,42 +104,35 @@ def build_paired_niches_from_flat(
     Args:
         gen_x / gen_pos: flat generated cells ``(N_gen, n_feat)`` / ``(N_gen, coord)``.
         real_x / real_pos: the real target cells ``(N_real, n_feat)`` / ``(N_real, coord)``.
-        k: microenvironment size (points per niche, centroid included) — the classifier's
-            ``n_neighbors``. Clamped to the number of available cells.
+        k: number of **neighbours** per niche (niche size ``k + 1``) — the classifier's KNN ``k``.
+            Clamped to the available cells on each side.
         real_ct: ``(N_real,)`` integer cell-type labels of the real cells; if given, the matched
             real centroid's label is returned as ``gt_ct`` (enables the accuracy-gap metric).
         centroid_indices: which generated cells to use as centroids; default all of them.
 
     Returns:
-        ``(gen_niche_x, gen_niche_pos, gt_x, gt_pos, gt_ct)`` — the first four ``(B, k, D)`` with
-        the centroid at point 0; ``gt_ct`` is ``(B,)`` or ``None`` when ``real_ct`` is absent.
+        ``(gen_niche_x, gen_niche_pos, gt_x, gt_pos, gt_ct)`` — the first four ``(B, k+1, D)`` with
+        the centroid at point 0; ``gt_ct`` is ``(B,)`` or ``None`` when ``real_ct`` is absent. The
+        ``*_pos`` are kept only for a downstream sub-KNN; the classifier reads expression only.
     """
     gen_x = np.asarray(gen_x)
     gen_pos = np.asarray(gen_pos)
     real_x = np.asarray(real_x)
     real_pos = np.asarray(real_pos)
 
-    k = int(min(k, len(gen_pos), len(real_pos)))
-    if k < 1:
+    if len(gen_pos) < 1 or len(real_pos) < 1:
         raise ValueError("Need at least one generated and one real cell to build niches.")
 
     centroids = (
         np.arange(len(gen_pos)) if centroid_indices is None else np.asarray(centroid_indices)
     )
 
-    gen_tree = cKDTree(gen_pos.astype(np.float64))
-    real_tree = cKDTree(real_pos.astype(np.float64))
+    # Generated niche: each centroid + its k nearest generated cells (centroid at column 0).
+    gen_nbr = knn_indices(gen_pos, k, centroids=centroids)  # (B, k+1)
 
-    # Generated niche: each centroid + its k nearest generated cells (the centroid, distance 0, is
-    # returned first). cKDTree returns neighbours distance-sorted, so column 0 is the centroid.
-    # k == 1 collapses the last axis to (B,); reshape restores (B, 1).
-    _, gen_nbr = gen_tree.query(gen_pos[centroids], k=k)
-    gen_nbr = gen_nbr.reshape(len(centroids), k)
-
-    # Paired real niche: the real cell nearest each centroid, then that cell's k nearest real cells.
-    _, r0 = real_tree.query(gen_pos[centroids], k=1)
-    _, real_nbr = real_tree.query(real_pos[r0], k=k)
-    real_nbr = real_nbr.reshape(len(centroids), k)
+    # Paired real niche: the real cell nearest each centroid, then that real cell's k nearest cells.
+    _, r0 = cKDTree(real_pos.astype(np.float64)).query(gen_pos[centroids], k=1)
+    real_nbr = knn_indices(real_pos, k, centroids=r0)  # (B, k+1)
 
     gen_niche_x = gen_x[gen_nbr]
     gen_niche_pos = gen_pos[gen_nbr]

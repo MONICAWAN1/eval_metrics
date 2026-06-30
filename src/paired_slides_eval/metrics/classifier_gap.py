@@ -71,7 +71,7 @@ def fixed_reference_accuracy(
         real_x, real_pos, real_x, real_pos, k, real_ct=real_ct, centroid_indices=centroids
     )
 
-    feats = build_microenv_points(niche_x, niche_pos, k)[0] if spatial else niche_x[:, 0, :]
+    feats = build_microenv_points(niche_x, niche_pos, k) if spatial else niche_x[:, 0, :]
     classifier.eval()
     device = next(classifier.parameters()).device
     y_pred = _classify_niches(classifier, feats, device)
@@ -98,11 +98,11 @@ def classifier_accuracy_gap(
         gt_x / gt_pos: the paired real target microenvironments (same centroids), same shapes.
         gt_ct: ``(B,)`` true cell-type label of each paired real centroid.
         classifier: a frozen ``torch.nn.Module`` (the trained cell-type classifier). Spatial nets
-            take the ``[expression | relative_position]`` point set ``(B, k, n_pcs + coord)``; the
+            take the **expression-only** KNN point set ``(B, k+1, n_pcs)`` (centroid at point 0); the
             gene-only net takes the centroid expression ``(B, n_pcs)``.
         spatial: whether ``classifier`` is a spatial SetTransformer-based net or gene-only.
-        n_neighbors: microenvironment size for the spatial classifier; ``None`` -> the value
-            recorded on the classifier at training time (matching the concordance probe).
+        n_neighbors: KNN ``k`` for the spatial classifier; ``None`` -> the value recorded on the
+            classifier at training time (matching the concordance probe).
 
     Returns:
         ``{prefix/ct/acc_real, prefix/ct/acc_gen, prefix/ct/acc_gap}`` — accuracy on the real
@@ -114,8 +114,8 @@ def classifier_accuracy_gap(
 
     if spatial:
         k = _resolve_n_neighbors(n_neighbors, classifier)
-        feats_gen, _ = build_microenv_points(gen_x, gen_pos, k)
-        feats_real, _ = build_microenv_points(gt_x, gt_pos, k)
+        feats_gen = build_microenv_points(gen_x, gen_pos, k)
+        feats_real = build_microenv_points(gt_x, gt_pos, k)
     else:
         feats_gen, feats_real = gen_x[:, 0, :], gt_x[:, 0, :]
 

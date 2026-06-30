@@ -27,7 +27,7 @@ def test_accuracy_gap_keys_and_bounds(rng):
     gt_pos = rng.uniform(0, 5, size=(b, n, 2)).astype("float32")
     gt_ct = rng.integers(0, 4, size=b)
 
-    clf = _TinyClassifier(point_dim=n_pcs + 2, output_dim=4)
+    clf = _TinyClassifier(point_dim=n_pcs, output_dim=4)
     clf.n_neighbors = n  # so _resolve_n_neighbors doesn't warn/fallback
 
     out = classifier_accuracy_gap(
@@ -46,7 +46,7 @@ def test_accuracy_gap_identical_inputs_zero_gap(rng):
     x = rng.normal(size=(b, n, n_pcs)).astype("float32")
     pos = rng.uniform(0, 5, size=(b, n, 2)).astype("float32")
     gt_ct = rng.integers(0, 3, size=b)
-    clf = _TinyClassifier(point_dim=n_pcs + 2, output_dim=3)
+    clf = _TinyClassifier(point_dim=n_pcs, output_dim=3)
     clf.n_neighbors = n
     # gen == gt -> identical predictions -> zero gap
     out = classifier_accuracy_gap(x, pos, x.copy(), pos.copy(), gt_ct, clf, spatial=True)

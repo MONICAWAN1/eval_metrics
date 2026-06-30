@@ -4,8 +4,6 @@ import torch
 import torch.nn.functional as F
 from jaxtyping import Float
 from torch import Tensor, nn
-from torch_geometric.nn import GCNConv
-from torch_geometric.utils import to_undirected
 
 
 class CTClassifierNet(nn.Module):
@@ -86,56 +84,47 @@ class PMA(nn.Module):
 class SpatialCTClassifierBase(nn.Module):
     """Base for microenvironment (spatial) cell-type classifiers.
 
-    Input is the ``[gene_expression | relative_position]`` point set with the centroid at
-    point 0 (see :class:`~nicheflow.datasets.h5ad_ct_dataset.SpatialH5ADCTDataset` and
-    :func:`~nicheflow.tasks.flow_matching.build_microenv_points`). With
-    ``mask_centroid=True`` (default) the centroid is excluded so the prediction uses the
-    *neighbourhood only* — the metric scores spatial coherence and cannot take the
-    ``x0 -> type`` shortcut (no leak of any center-derived feature).
+    Input is an **expression-only** point set ``(batch, k+1, input_dim)`` — the centroid (point 0)
+    plus its ``k`` nearest neighbours (KNN by coordinates; see
+    :class:`~paired_slides_eval.classifier.dataset.SpatialH5ADCTDataset` and
+    :func:`~paired_slides_eval.metrics._common.build_knn_point_set`). **Coordinates are not
+    features** — they are used only to select KNN membership, then discarded, so the classifier is
+    coordinate-blind (rotation/translation invariant). Local spatial organisation is evaluated
+    *implicitly*: a realistic generated cell should have a neighbourhood-expression signature like its
+    nearest real cell's. With ``mask_centroid=True`` (default) the centroid is excluded so the
+    prediction uses the *neighbourhood only* (no ``x0 -> type`` leak).
 
     Subclasses keep ``input_dim``/``output_dim`` and the ``"X"`` batch key, so the
-    :class:`~nicheflow.tasks.ct_classification.CellTypeClassification` task and the
-    :class:`~nicheflow.tasks.flow_matching.CellTypeConcordance` eval (which read
-    ``net.output_dim`` and call ``net(batch["X"])``) work unchanged across variants.
-    ``FlowMatching`` recognises any subclass as a spatial classifier.
+    :class:`~paired_slides_eval.classifier.task.CellTypeClassification` task and the eval metrics
+    (which read ``net.output_dim`` and call ``net(batch["X"])``) work unchanged across variants.
     """
 
-    def __init__(
-        self, input_dim: int, output_dim: int, coord_dim: int = 2, mask_centroid: bool = True
-    ) -> None:
+    def __init__(self, input_dim: int, output_dim: int, mask_centroid: bool = True) -> None:
         super().__init__()
         self.input_dim = input_dim
-        self.coord_dim = coord_dim
         self.output_dim = output_dim
         self.mask_centroid = mask_centroid
 
 
 class SpatialCTClassifierNet(SpatialCTClassifierBase):
-    """Set-Transformer classifier over a microenvironment point set.
+    """Set-Transformer classifier over an **expression-only** KNN neighbourhood.
 
-    Input is a per-cell point cloud of ``[gene_expression | relative_position]`` rows
-    (the centroid plus its nearest neighbours, see
-    :class:`~nicheflow.datasets.h5ad_ct_dataset.SpatialH5ADCTDataset`). The centroid is
-    the first point (relative position 0) on both the training and the eval
-    (:func:`~nicheflow.tasks.flow_matching.build_microenv_points`) paths.
+    Input is a per-cell point set of **gene-expression** rows ``(batch, k+1, input_dim)`` — the
+    centroid (point 0) plus its ``k`` nearest neighbours (KNN by coordinates; see
+    :class:`~paired_slides_eval.classifier.dataset.SpatialH5ADCTDataset`). Coordinates are **not**
+    fed in: they only define which cells are in the set, so the classifier is coordinate-blind and
+    cannot exploit a relative-position leak (which would not survive rotation anyway).
 
-    By default (``mask_centroid=True``) the centroid is dropped from the input and the
-    type is predicted from the neighbours only, so the metric measures whether a cell
-    sits in a spatially coherent niche. The neighbours are embedded per-point, mixed by 
-    a ``SAB`` self-attention stack, and pooled by a learnable ``PMA`` seed. Relative 
-    positions keep the model translation invariant.
+    By default (``mask_centroid=True``) the centroid is dropped and the type is predicted from the
+    neighbours only, so the metric measures whether a cell sits in a coherent local neighbourhood.
+    The neighbours are embedded per-point, mixed by a ``SAB`` self-attention stack, and pooled by a
+    learnable ``PMA`` seed. With ``mask_centroid=False`` (ablation) the centroid embedding queries its
+    neighbours (``MAB``) and is concatenated back — re-introducing the ``x0`` leak.
 
-    With ``mask_centroid=False`` (ablation only) the centroid is kept and used as the
-    attention query (``MAB``) over its neighbours, then concatenated with its own
-    embedding before decoding. This intentionally re-introduces the ``x0`` leak, so it is
-    only useful for measuring how much spatial context adds on top of expression.
-
-    Both modes use the attention blocks of the Set Transformer (Lee et al., ICML 2019).
-
-    The output is still cell-type logits and the batch key is still ``"X"``, so the
-    existing :class:`~nicheflow.tasks.ct_classification.CellTypeClassification` task and
-    the :class:`~nicheflow.tasks.flow_matching.CellTypeConcordance` eval (which read
-    ``net.output_dim`` and call ``net(batch["X"])``) work unchanged.
+    Both modes use the attention blocks of the Set Transformer (Lee et al., ICML 2019). The output is
+    cell-type logits and the batch key is ``"X"``, so the
+    :class:`~paired_slides_eval.classifier.task.CellTypeClassification` task and the eval metrics work
+    unchanged.
     """
 
     def __init__(
@@ -143,21 +132,19 @@ class SpatialCTClassifierNet(SpatialCTClassifierBase):
         input_dim: int,
         output_dim: int,
         hidden_dim: int,
-        coord_dim: int = 2,
         num_heads: int = 4,
         num_sabs: int = 2,
         mask_centroid: bool = True,
         ln: bool = True,
     ) -> None:
-        super().__init__(input_dim, output_dim, coord_dim, mask_centroid)
+        super().__init__(input_dim, output_dim, mask_centroid)
         if hidden_dim % num_heads != 0:
             raise ValueError(
                 f"hidden_dim ({hidden_dim}) must be divisible by num_heads ({num_heads})."
             )
-        point_dim = input_dim + coord_dim
 
-        # Shared per-point embedding of each [expression | relative_position] row.
-        self.point_proj = nn.Linear(point_dim, hidden_dim)
+        # Shared per-point embedding of each gene-expression row (coordinates are not features).
+        self.point_proj = nn.Linear(input_dim, hidden_dim)
         # Let the neighbours interact (captures local niche structure).
         self.encoder = nn.Sequential(
             *[SAB(hidden_dim, hidden_dim, num_heads, ln=ln) for _ in range(num_sabs)]
@@ -178,7 +165,7 @@ class SpatialCTClassifierNet(SpatialCTClassifierBase):
         )
 
     def forward(
-        self, x: Float[Tensor, "batch n_points {self.input_dim}+{self.coord_dim}"]
+        self, x: Float[Tensor, "batch n_points {self.input_dim}"]
     ) -> Float[Tensor, "batch {self.output_dim}"]:
         h = self.point_proj(x)  # (batch, n_points, hidden_dim)
 
@@ -238,89 +225,3 @@ class SpatialCTClassifierNet(SpatialCTClassifierBase):
 #         h = self.phi(points)
 #         pooled = torch.cat([h.mean(dim=-2), h.max(dim=-2).values], dim=-1)
 #         return self.rho(pooled)
-
-
-# class GraphCTClassifierNet(SpatialCTClassifierBase):
-#     """GCN node classifier over a microenvironment graph (the simplest GNN probe).
-
-#     Uses the GNN-native data representation (Kipf & Welling, ICLR 2017; see also the GCN
-#     cell-type annotators scIMGCN and STdGCN): gene expression is the **node feature**
-#     (*what* a cell is) and the spatial coordinates define the **graph structure** (*who is
-#     near whom*) — they are NOT concatenated into the feature vector. Per microenvironment
-#     we build a kNN graph among the centroid + its neighbours from their relative positions,
-#     run ``GCNConv`` message passing, and read out the centroid node's embedding.
-
-#     Masked centroid (default): the centroid node's expression is zeroed **and** its
-#     position is forced to the origin, so nothing from the centre can leak into its own
-#     prediction — its type is predicted purely from neighbours' expression propagated along
-#     the spatial graph. The graph is built *within a niche* (the centroid's neighbourhood),
-#     not over the whole pool of generated cells, matching the receptive field of the other
-#     spatial probes.
-
-#     Input is the same ``[gene_expression | relative_position]`` point set as the other
-#     spatial classifiers (centroid first), so this is a drop-in for the
-#     :class:`~nicheflow.tasks.ct_classification.CellTypeClassification` task and the
-#     :class:`~nicheflow.tasks.flow_matching.CellTypeConcordance` eval.
-#     """
-
-#     def __init__(
-#         self,
-#         input_dim: int,
-#         output_dim: int,
-#         hidden_dim: int,
-#         coord_dim: int = 2,
-#         mask_centroid: bool = True,
-#         num_layers: int = 2,
-#         intra_k: int = 8,
-#         dropout: float = 0.5,
-#     ) -> None:
-#         super().__init__(input_dim, output_dim, coord_dim, mask_centroid)
-#         self.intra_k = intra_k
-#         self.dropout = dropout
-#         # Node features = gene expression only (coordinates define the graph, not features).
-#         self.convs = nn.ModuleList([GCNConv(input_dim, hidden_dim)])
-#         for _ in range(num_layers - 1):
-#             self.convs.append(GCNConv(hidden_dim, hidden_dim))
-#         self.head = nn.Linear(hidden_dim, output_dim)
-
-#     def forward(
-#         self, x: Float[Tensor, "batch n_points {self.input_dim}+{self.coord_dim}"]
-#     ) -> Float[Tensor, "batch {self.output_dim}"]:
-#         batch_size, n_points, _ = x.shape
-#         feats = x[..., : self.input_dim]  # (B, K, input_dim) gene expression
-#         pos = x[..., self.input_dim : self.input_dim + self.coord_dim]  # (B, K, coord_dim)
-
-#         if self.mask_centroid:
-#             # Nothing from the centre may leak: zero its expression and pin it to the
-#             # origin (its relative position is 0 by construction anyway).
-#             feats = feats.clone()
-#             pos = pos.clone()
-#             feats[:, 0, :] = 0.0
-#             pos[:, 0, :] = 0.0
-
-#         # One block-diagonal batched graph: a per-niche kNN over relative positions.
-#         edge_index = self._niche_knn_edges(pos)
-#         h = feats.reshape(batch_size * n_points, self.input_dim)
-#         for i, conv in enumerate(self.convs):
-#             h = conv(h, edge_index)
-#             if i < len(self.convs) - 1:
-#                 h = F.dropout(F.relu(h), p=self.dropout, training=self.training)
-
-#         # Read out the centroid node of each niche (row 0 within each K-node block).
-#         centroid_rows = torch.arange(batch_size, device=x.device) * n_points
-#         return self.head(h[centroid_rows])
-
-#     def _niche_knn_edges(self, pos: Tensor) -> Tensor:
-#         """Undirected kNN edges within each niche, offset into one batched graph."""
-#         batch_size, n_points, _ = pos.shape
-#         k = min(self.intra_k, n_points - 1)
-#         dist = torch.cdist(pos, pos)  # (B, K, K)
-#         eye = torch.eye(n_points, dtype=torch.bool, device=pos.device)
-#         dist = dist.masked_fill(eye, float("inf"))  # exclude self
-#         nbr = dist.topk(k, dim=-1, largest=False).indices  # (B, K, k)
-
-#         offset = (torch.arange(batch_size, device=pos.device) * n_points).view(-1, 1, 1)
-#         src = (torch.arange(n_points, device=pos.device).view(1, -1, 1).expand(batch_size, -1, k) + offset)
-#         dst = nbr + offset
-#         edge_index = torch.stack([src.reshape(-1), dst.reshape(-1)], dim=0)
-#         return to_undirected(edge_index, num_nodes=batch_size * n_points)

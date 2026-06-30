@@ -18,7 +18,7 @@ from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide, TargetS
 from paired_slides_eval.data.anndata import read_anndata
 from paired_slides_eval.metrics._common import build_paired_niches_from_flat
 from paired_slides_eval.metrics.c2st import c2st_metrics
-from paired_slides_eval.metrics.c2st_graph import c2st_graph_metrics
+from paired_slides_eval.metrics.c2st_nn import c2st_nn_metrics
 from paired_slides_eval.metrics.classifier_gap import classifier_accuracy_gap
 from paired_slides_eval.metrics.concordance import _resolve_n_neighbors, cell_type_concordance
 from paired_slides_eval.metrics.distances import point_to_shape, regression_metrics, shape_to_point
@@ -31,7 +31,7 @@ ALL_GROUPS = (
     "spd",
     "distribution",
     "c2st",
-    "c2st_graph",
+    "c2st_nn",
     "moran",
     "concordance",
     "ct_gap",
@@ -53,7 +53,7 @@ def evaluate(
     c2st_max_n: int = 2000,
     c2st_n_folds: int = 5,
     c2st_n_perm: int = 0,
-    c2st_graph_k: int = 10,
+    c2st_nn_k: int = 10,
     mmd_max_n: int = 2000,
     ot_max_n: int = 4000,
     moran_n_neighs: int = 6,
@@ -63,8 +63,8 @@ def evaluate(
     """Compute every applicable metric for ``generated`` vs. ``target`` and return a flat dict.
 
     Groups: ``regression`` (needs ``generated.gt_*``), ``psd``/``spd``, ``distribution`` (MMD/EMD),
-    ``c2st`` (per-cell joint + pos-only), ``c2st_graph`` (GCN over spatial kNN graphs — the
-    spatially-aware C2ST), ``moran`` (Moran's I over **all** generated cells),
+    ``c2st`` (per-cell joint + pos-only), ``c2st_nn`` (forgiving nearest-neighbour two-sample test
+    pooled over spatial niches), ``moran`` (Moran's I over **all** generated cells),
     ``concordance`` (classifier agreement on generated vs paired-real niches) and ``ct_gap``
     (classifier accuracy gap real-vs-generated). The two classifier groups need a ``classifier``
     and the paired real niches ``generated.gt_*`` (``ct_gap`` also needs ``generated.gt_ct``).
@@ -139,19 +139,18 @@ def evaluate(
             )
         )
 
-    if "c2st_graph" in groups:
-        # Spatially-aware C2ST: a GCN over per-slide spatial kNN graphs (expression as node
-        # features) — reads relative neighbourhoods where the MLP c2st reads absolute coords.
+    if "c2st_nn" in groups:
+        # Forgiving spatial two-sample test: per generated niche, the fraction of its spatial
+        # neighbours whose joint-pool expression NN is a real cell. ~0.5 = indistinguishable.
         out.update(
-            c2st_graph_metrics(
+            c2st_nn_metrics(
                 target.x,
                 target.pos,
                 generated.flat_x,
                 generated.flat_pos,
                 prefix=prefix,
                 max_n=c2st_max_n,
-                graph_k=c2st_graph_k,
-                n_folds=c2st_n_folds,
+                spatial_k=c2st_nn_k,
                 seed=seed,
             )
         )
@@ -385,7 +384,7 @@ def evaluate_files(
         n_pcs: ``.h5ad`` target only — fit a per-target PCA to ``n_pcs`` (legacy path).
         classifier: a ready classifier module, or a path to a ``.ckpt`` (enables the ``ct/*`` groups).
         classifier_kwargs: net hyperparameters for ``build_spatial_classifier`` when ``classifier`` is
-            a path (``hidden_dim`` / ``num_heads`` / ``coord_dim`` / ``mask_centroid``).
+            a path (``hidden_dim`` / ``num_heads`` / ``mask_centroid``).
         coords: ``"auto"`` (default) / ``"standardize"`` / ``"passthrough"`` — how generated coords are
             reconciled to the target frame (see :func:`_reconcile_generated`).
         apply_lognorm: forwarded to the shared-PCA recipe — ``False`` if the generated gene-space cells
@@ -479,13 +478,13 @@ def build_spatial_classifier(
     *,
     hidden_dim: int = 64,
     num_heads: int = 4,
-    coord_dim: int = 2,
     mask_centroid: bool = True,
 ):
     """Reconstruct the spatial SetTransformer classifier and load a checkpoint into it.
 
-    Net hyperparameters must match what was trained; ``load_spatial_classifier`` attaches the
-    training ``n_neighbors`` so the classifier metrics build identically sized niches.
+    The net is **expression-only** (no coordinates); hyperparameters must match what was trained, and
+    ``load_spatial_classifier`` attaches the training KNN ``k`` so the classifier metrics build
+    identically sized niches.
     """
     import torch
 
@@ -496,7 +495,6 @@ def build_spatial_classifier(
         input_dim=input_dim,
         output_dim=output_dim,
         hidden_dim=hidden_dim,
-        coord_dim=coord_dim,
         num_heads=num_heads,
         mask_centroid=mask_centroid,
     )
@@ -632,7 +630,6 @@ def _main() -> None:
     # Spatial classifier net hyperparameters (must match training; only used with --classifier).
     ap.add_argument("--hidden_dim", type=int, default=64)
     ap.add_argument("--num_heads", type=int, default=4)
-    ap.add_argument("--coord_dim", type=int, default=2)
     ap.add_argument("--no_mask_centroid", action="store_true", help="ablation: keep the centroid")
     args = ap.parse_args()
 
@@ -645,7 +642,6 @@ def _main() -> None:
         classifier_kwargs=dict(
             hidden_dim=args.hidden_dim,
             num_heads=args.num_heads,
-            coord_dim=args.coord_dim,
             mask_centroid=not args.no_mask_centroid,
         ),
         groups=tuple(args.groups) if args.groups else ALL_GROUPS,

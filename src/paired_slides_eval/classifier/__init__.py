@@ -13,8 +13,6 @@ _EXPORTS = {
     "CTClassifierNet": "nets",
     "SpatialCTClassifierBase": "nets",
     "SpatialCTClassifierNet": "nets",
-    "SpatialDeepSetCTClassifierNet": "nets",
-    "GraphCTClassifierNet": "nets",
     # lightning-dependent (training only)
     "CellTypeClassification": "task",
     "Plots": "task",

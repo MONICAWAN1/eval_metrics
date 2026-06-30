@@ -7,7 +7,7 @@ and a *wrapper* that scores generated-vs-real and returns a flat ``{group/metric
 """
 
 from paired_slides_eval.metrics.c2st import c2st, c2st_metrics, c2st_significance
-from paired_slides_eval.metrics.c2st_graph import c2st_graph, c2st_graph_metrics
+from paired_slides_eval.metrics.c2st_nn import c2st_nn, c2st_nn_metrics
 from paired_slides_eval.metrics.classifier_gap import classifier_accuracy_gap
 from paired_slides_eval.metrics.concordance import cell_type_concordance
 from paired_slides_eval.metrics.distances import (
@@ -21,14 +21,14 @@ from paired_slides_eval.metrics.morans import morans_compare, morans_i
 __all__ = [
     # kernels
     "c2st",
-    "c2st_graph",
+    "c2st_nn",
     "c2st_significance",
     "mmd2_rbf",
     "ot_distance",
     "morans_i",
     # wrappers
     "c2st_metrics",
-    "c2st_graph_metrics",
+    "c2st_nn_metrics",
     "cell_type_concordance",
     "classifier_accuracy_gap",
     "distribution_distance",

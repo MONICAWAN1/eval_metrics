@@ -23,8 +23,9 @@ def test_build_paired_niches_shapes_and_centroids(rng):
     nx, npos, gtx, gtpos, gtct = build_paired_niches_from_flat(
         gen_x, gen_pos, real_x, real_pos, k, real_ct=real_ct
     )
-    assert nx.shape == (50, k, 4) and npos.shape == (50, k, 2)
-    assert gtx.shape == (50, k, 4) and gtpos.shape == (50, k, 2)
+    # k = number of NEIGHBOURS, so each niche has k+1 points (centroid + k).
+    assert nx.shape == (50, k + 1, 4) and npos.shape == (50, k + 1, 2)
+    assert gtx.shape == (50, k + 1, 4) and gtpos.shape == (50, k + 1, 2)
     assert gtct.shape == (50,)
 
     # Generated niche point 0 is the centroid generated cell itself.
@@ -43,15 +44,15 @@ def test_build_paired_niches_shapes_and_centroids(rng):
 def test_build_paired_niches_clamps_k_and_subsamples(rng):
     gen_x, gen_pos = rng.normal(size=(3, 4)), rng.uniform(size=(3, 2))
     real_x, real_pos = rng.normal(size=(2, 4)), rng.uniform(size=(2, 2))
-    # k clamps to the smaller of the two clouds.
-    nx, *_ = build_paired_niches_from_flat(gen_x, gen_pos, real_x, real_pos, 6)
-    assert nx.shape == (3, 2, 4)
-    # centroid_indices restricts which generated cells become niches.
+    # k clamps PER SIDE to the available neighbours (n-1): gen 3 cells -> 3 points, real 2 -> 2.
+    nx, npos, gtx, *_ = build_paired_niches_from_flat(gen_x, gen_pos, real_x, real_pos, 6)
+    assert nx.shape == (3, 3, 4) and gtx.shape == (3, 2, 4)
+    # centroid_indices restricts which generated cells become niches (k=2 -> 3 points).
     nx2, *_, gtct = build_paired_niches_from_flat(
         rng.normal(size=(20, 4)), rng.uniform(size=(20, 2)),
         real_x, real_pos, 2, centroid_indices=np.arange(5),
     )
-    assert nx2.shape == (5, 2, 4) and gtct is None
+    assert nx2.shape == (5, 3, 4) and gtct is None
 
 
 pytest.importorskip("torch")  # the evaluate-level tests below need a tiny torch classifier
@@ -84,7 +85,7 @@ def _flat_target_and_slide(real_slide):
 def test_evaluate_auto_builds_niches_from_flat_slide(real_slide):
     target, generated = _flat_target_and_slide(real_slide)
     k = 8
-    clf = _TinyClassifier(real_slide["x"].shape[1] + 2, real_slide["n_classes"], n_neighbors=k)
+    clf = _TinyClassifier(real_slide["x"].shape[1],real_slide["n_classes"], n_neighbors=k)
 
     out = evaluate(target, generated, classifier=clf, groups=("concordance", "ct_gap"))
     # Both classifier groups now run on the flat slide (no GeneratedNiches supplied).
@@ -95,7 +96,7 @@ def test_evaluate_auto_builds_niches_from_flat_slide(real_slide):
 
 def test_evaluate_auto_niche_can_be_disabled(real_slide):
     target, generated = _flat_target_and_slide(real_slide)
-    clf = _TinyClassifier(real_slide["x"].shape[1] + 2, real_slide["n_classes"], n_neighbors=8)
+    clf = _TinyClassifier(real_slide["x"].shape[1],real_slide["n_classes"], n_neighbors=8)
     out = evaluate(
         target, generated, classifier=clf,
         groups=("concordance", "ct_gap"), auto_niche_from_flat=False,
@@ -109,7 +110,7 @@ def test_evaluate_flat_ct_gap_needs_target_labels(real_slide):
     target, generated = _flat_target_and_slide(real_slide)
     target.ct = None  # no labels -> ct_gap cannot score, concordance still can
     target.n_classes = None
-    clf = _TinyClassifier(real_slide["x"].shape[1] + 2, 4, n_neighbors=6)
+    clf = _TinyClassifier(real_slide["x"].shape[1],4, n_neighbors=6)
     out = evaluate(target, generated, classifier=clf, groups=("concordance", "ct_gap"))
     assert "test/ct/acc" in out  # concordance ran
     assert any("ct_gap" in s for s in out["_skipped"])  # ct_gap skipped (no gt_ct)

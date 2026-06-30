@@ -1,10 +1,7 @@
 defaults:
   - ct_abca
 
-# Spatial coordinate dim, consumed by the spatial classifier net.
-coord_dim: 2
-
 datamodule:
-  # Microenvironment size (nearest neighbours per cell, self included). The ABCA
-  # slides have ~41-43 neighbours per microenvironment, so 32 is safely below that.
-  n_neighbors: 32
+  # KNN neighbourhood size: k = number of neighbours around the centroid (niche = k+1 points).
+  # The classifier is expression-only; coordinates only select the KNN membership.
+  n_neighbors: 10
