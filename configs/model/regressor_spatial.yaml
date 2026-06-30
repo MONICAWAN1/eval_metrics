@@ -1,0 +1,28 @@
+_target_: paired_slides_eval.classifier.task.SpatialExprRegression
+
+net:
+  _target_: paired_slides_eval.classifier.nets.SpatialCTClassifierNet
+  input_dim: ${data.n_pcs}
+  hidden_dim: 64
+  output_dim: ${data.n_pcs}
+  num_heads: 4
+  mask_centroid: true
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.00001
+
+lr_scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.75
+  patience: 25
+
+lr_scheduler_args:
+  monitor: val/mse
+
+loss: mse
+plot_callbacks: false

@@ -1,0 +1,22 @@
+# @package _global_
+defaults:
+  - override /data: ct_abca_spatial_regressor
+  - override /model: regressor_spatial
+  - override /logger: wandb
+  - override /trainer: gpu
+
+logger:
+  wandb:
+    name: "ExprRegressor_Spatial_ABCA"
+
+trainer:
+  max_epochs: 500
+  gradient_clip_val: 1.0
+
+callbacks:
+  model_checkpoint:
+    monitor: "val/mse"
+    mode: "min"
+  early_stopping:
+    monitor: "val/mse"
+    mode: "min"

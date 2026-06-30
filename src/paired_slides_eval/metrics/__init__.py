@@ -16,6 +16,7 @@ from paired_slides_eval.metrics.distances import (
     shape_to_point,
 )
 from paired_slides_eval.metrics.distribution import distribution_distance, mmd2_rbf, ot_distance
+from paired_slides_eval.metrics.expr_recon import expr_recon_gap, fixed_reference_mse
 from paired_slides_eval.metrics.morans import morans_compare, morans_i
 
 __all__ = [
@@ -32,6 +33,8 @@ __all__ = [
     "cell_type_concordance",
     "classifier_accuracy_gap",
     "distribution_distance",
+    "expr_recon_gap",
+    "fixed_reference_mse",
     "morans_compare",
     "point_to_shape",
     "regression_metrics",

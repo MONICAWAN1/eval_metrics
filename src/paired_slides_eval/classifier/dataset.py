@@ -49,9 +49,16 @@ class SpatialH5ADCTDataset(Dataset):
     The local spatial organisation is evaluated *implicitly* through which cells are in the set: a
     realistic generated cell should have a neighbourhood-expression signature like its nearest real
     cell's. Neighbour gathering is lazy in ``__getitem__`` so each cell's expression is stored once.
+
+    ``target`` selects the supervision: ``"ct"`` (default) gives the centroid's cell-type label;
+    ``"expr"`` gives the centroid's expression vector, turning this into a **masked-centroid
+    expression regression** dataset (predict the masked centroid's expression from its neighbours).
     """
 
-    def __init__(self, filepath: str, n_neighbors: int = 10) -> None:
+    def __init__(self, filepath: str, n_neighbors: int = 10, target: str = "ct") -> None:
+        if target not in ("ct", "expr"):
+            raise ValueError(f"target must be 'ct' or 'expr', got {target!r}")
+        self.target = target
         ds = load_h5ad_dataset_dataclass(filepath=filepath)
         ct_to_int_vec = np.vectorize(ds.ct_to_int.get)
 
@@ -90,4 +97,10 @@ class SpatialH5ADCTDataset(Dataset):
         nbr = self.neighbor_idx_by_t[timepoint][centroid]  # (k+1,) centroid at 0
         points = self.x_by_t[timepoint][nbr]  # (k+1, n_pcs) expression only
 
-        return {"X": points, "y": self.ct_by_t[timepoint][centroid]}
+        # "ct" -> centroid cell-type label; "expr" -> centroid expression vector (the masked target).
+        y = (
+            self.x_by_t[timepoint][centroid]
+            if self.target == "expr"
+            else self.ct_by_t[timepoint][centroid]
+        )
+        return {"X": points, "y": y}

@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 import torchmetrics as tm
 from lightning import Callback, LightningModule, Trainer
 from lightning.pytorch.loggers.wandb import WandbLogger
@@ -246,3 +247,77 @@ class CellTypeClassification(LightningModule):
         if self.plot_callbacks:
             callbacks = [*callbacks, Plots()]
         return callbacks
+
+
+class SpatialExprRegression(LightningModule):
+    """Masked-centroid gene-expression regressor.
+
+    Predicts a centroid cell's expression vector from its spatial KNN neighbours (the net masks the
+    centroid, so it cannot copy). Trained on the target slide; its reconstruction error on the
+    generated slide is read as a realism probe (see :mod:`paired_slides_eval.metrics.expr_recon`).
+    Shares the spatial dataset + net with the ct classifier; only the head (``output_dim == n_pcs``),
+    the supervision (``target="expr"``) and the loss (MSE) differ.
+    """
+
+    def __init__(
+        self,
+        net,
+        optimizer: type[Optimizer],
+        lr_scheduler: type[LRScheduler] | None = None,
+        lr_scheduler_args: dict[str, Any] | None = None,
+        loss: str = "mse",
+        plot_callbacks: bool = False,
+    ) -> None:
+        super().__init__()
+        self.save_hyperparameters(ignore=["net", "optimizer", "lr_scheduler"])
+        if loss not in ("mse", "cosine"):
+            raise ValueError(f"loss must be 'mse' or 'cosine', got {loss!r}")
+
+        self.net = net
+        self._optimizer = optimizer
+        self._lr_scheduler = lr_scheduler
+        self._lr_scheduler_args = lr_scheduler_args
+        self._loss_name = loss
+        self.plot_callbacks = plot_callbacks  # kept for config symmetry; no plots for regression
+        # Effective KNN size the spatial net trains on, persisted so eval rebuilds matching niches.
+        self._train_n_neighbors: int | None = None
+        self.val_mse = tm.MeanSquaredError()
+        self.test_mse = tm.MeanSquaredError()
+
+    def _loss(self, pred: Tensor, target: Tensor) -> Tensor:
+        if self._loss_name == "cosine":
+            return (1.0 - F.cosine_similarity(pred, target, dim=-1)).mean()
+        return F.mse_loss(pred, target)
+
+    def on_fit_start(self) -> None:
+        dataset = getattr(getattr(self.trainer, "datamodule", None), "dataset", None)
+        n_neighbors = getattr(dataset, "n_neighbors", None)
+        if n_neighbors is not None:
+            self._train_n_neighbors = int(n_neighbors)
+
+    def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        if self._train_n_neighbors is not None:
+            checkpoint["n_neighbors"] = self._train_n_neighbors
+
+    def training_step(self, batch: CellTypeBatch, _) -> dict[str, Tensor]:
+        loss = self._loss(self.net(batch["X"]), batch["y"])
+        self.log("train/loss", loss.item(), batch_size=batch["X"].size(0), prog_bar=True)
+        return {"loss": loss}
+
+    def validation_step(self, batch: CellTypeBatch, _) -> None:
+        self.val_mse(self.net(batch["X"]), batch["y"])
+        self.log("val/mse", self.val_mse, prog_bar=True)
+
+    def test_step(self, batch: CellTypeBatch, _) -> None:
+        self.test_mse(self.net(batch["X"]), batch["y"])
+        self.log("test/mse", self.test_mse)
+
+    def configure_optimizers(self) -> Any:
+        optimizer = self._optimizer(params=self.net.parameters())
+        config = {"optimizer": optimizer}
+        if self._lr_scheduler is not None and self._lr_scheduler_args is not None:
+            config["lr_scheduler"] = {
+                "scheduler": self._lr_scheduler(optimizer=optimizer),
+                **self._lr_scheduler_args,
+            }
+        return config

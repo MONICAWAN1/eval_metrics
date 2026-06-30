@@ -21,6 +21,7 @@ from paired_slides_eval.metrics.c2st import c2st_metrics
 from paired_slides_eval.metrics.c2st_nn import c2st_nn_metrics
 from paired_slides_eval.metrics.classifier_gap import classifier_accuracy_gap
 from paired_slides_eval.metrics.concordance import _resolve_n_neighbors, cell_type_concordance
+from paired_slides_eval.metrics.expr_recon import expr_recon_gap, fixed_reference_mse
 from paired_slides_eval.metrics.distances import point_to_shape, regression_metrics, shape_to_point
 from paired_slides_eval.metrics.distribution import distribution_distance
 from paired_slides_eval.metrics.morans import morans_compare
@@ -35,6 +36,7 @@ ALL_GROUPS = (
     "moran",
     "concordance",
     "ct_gap",
+    "recon",
 )
 
 
@@ -43,6 +45,7 @@ def evaluate(
     generated: GeneratedNiches | GeneratedSlide,
     *,
     classifier=None,
+    regressor=None,
     classifier_spatial: bool = True,
     classifier_n_neighbors: int | None = None,
     auto_niche_from_flat: bool = True,
@@ -59,6 +62,8 @@ def evaluate(
     moran_n_neighs: int = 6,
     ct_real_reference: str = "paired",
     ct_real_n: int = 2000,
+    recon_real_reference: str = "fixed",
+    recon_real_n: int = 2000,
 ) -> dict:
     """Compute every applicable metric for ``generated`` vs. ``target`` and return a flat dict.
 
@@ -85,6 +90,9 @@ def evaluate(
     ``"fixed"`` scores a seeded, model-independent sample of ``ct_real_n`` real target centroids, so
     ``acc_real`` is one constant across models and only ``acc_gen``/``acc_gap`` vary (use this for
     cross-model comparison tables). ``"fixed"`` needs the target's ``ct`` labels.
+
+    ``recon_real_reference`` similarly controls ``recon/mse_real``; it defaults to ``"fixed"`` so the
+    reconstruction gap uses a model-independent real-target baseline.
     """
     out: dict[str, float] = {}
     skipped: list[str] = []
@@ -176,13 +184,14 @@ def evaluate(
     # share between concordance and ct_gap.
     notes: list[str] = []
     niche_gen = generated
-    if classifier is not None and ("concordance" in groups or "ct_gap" in groups):
+    niche_model = classifier if classifier is not None else regressor
+    if niche_model is not None and {"concordance", "ct_gap", "recon"}.intersection(groups):
         if not _has_paired_niches(generated) and isinstance(generated, GeneratedSlide):
             if auto_niche_from_flat:
                 niche_gen = _auto_paired_niches(
                     generated,
                     target,
-                    classifier,
+                    niche_model,
                     spatial=classifier_spatial,
                     n_neighbors=classifier_n_neighbors,
                     max_centroids=auto_niche_max,
@@ -261,6 +270,43 @@ def evaluate(
             skipped.append(
                 "ct_gap (needs `classifier`, paired niches `gt_x/gt_pos` and true centroid labels "
                 "`gt_ct` — for a flat slide, pass a target with `ct_key` so labels are available)"
+            )
+
+    if "recon" in groups:
+        if regressor is not None and _has_paired_niches(niche_gen):
+            out.update(
+                expr_recon_gap(
+                    niche_gen.x,
+                    niche_gen.pos,
+                    niche_gen.gt_x,
+                    niche_gen.gt_pos,
+                    regressor,
+                    prefix=prefix,
+                    n_neighbors=classifier_n_neighbors,
+                )
+            )
+            # Optionally replace the (model-dependent, paired) mse_real with a fixed, seeded sample of
+            # real target niches so mse_real is one constant across models — only mse_gen then varies.
+            if recon_real_reference == "fixed":
+                p = f"{prefix}/" if prefix else ""
+                mse_real = fixed_reference_mse(
+                    target.x,
+                    target.pos,
+                    regressor,
+                    n_neighbors=classifier_n_neighbors,
+                    n_centroids=recon_real_n,
+                    seed=seed,
+                )
+                out[f"{p}recon/mse_real"] = mse_real
+                out[f"{p}recon/mse_gap"] = abs(out[f"{p}recon/mse_gen"] - mse_real)
+                notes.append(
+                    f"recon/mse_real from a fixed seeded sample of {recon_real_n} real target "
+                    "centroids (model-independent), not the generated-centroid pairing"
+                )
+        else:
+            skipped.append(
+                "recon (needs `regressor` and paired real niches — supply a `GeneratedNiches` with "
+                "`gt_x/gt_pos`, or a flat slide with coords so they can be auto-built)"
             )
 
     out["_skipped"] = skipped
@@ -350,7 +396,9 @@ def evaluate_files(
     ct_key: str | None = None,
     n_pcs: int | None = None,
     classifier=None,
+    regressor=None,
     classifier_kwargs: dict | None = None,
+    regressor_kwargs: dict | None = None,
     groups: tuple[str, ...] = ALL_GROUPS,
     expr_key: str | None = None,
     spatial_key: str = "spatial",
@@ -383,8 +431,12 @@ def evaluate_files(
         ct_key: ``obs`` column with cell types (``.h5ad`` target only; a ``.pkl`` already has labels).
         n_pcs: ``.h5ad`` target only — fit a per-target PCA to ``n_pcs`` (legacy path).
         classifier: a ready classifier module, or a path to a ``.ckpt`` (enables the ``ct/*`` groups).
+        regressor: a ready masked-centroid expression regressor module, or a path to a ``.ckpt``
+            (enables the ``recon`` group).
         classifier_kwargs: net hyperparameters for ``build_spatial_classifier`` when ``classifier`` is
             a path (``hidden_dim`` / ``num_heads`` / ``mask_centroid``).
+        regressor_kwargs: net hyperparameters for ``build_spatial_regressor`` when ``regressor`` is
+            a path.
         coords: ``"auto"`` (default) / ``"standardize"`` / ``"passthrough"`` — how generated coords are
             reconciled to the target frame (see :func:`_reconcile_generated`).
         apply_lognorm: forwarded to the shared-PCA recipe — ``False`` if the generated gene-space cells
@@ -416,7 +468,23 @@ def evaluate_files(
             **(classifier_kwargs or {}),
         )
 
-    res = evaluate(target_slide, gen, classifier=clf, groups=groups, seed=seed, **evaluate_kwargs)
+    reg = regressor
+    if isinstance(regressor, str):
+        reg = build_spatial_regressor(
+            regressor,
+            target_slide.x.shape[1],
+            **(regressor_kwargs or {}),
+        )
+
+    res = evaluate(
+        target_slide,
+        gen,
+        classifier=clf,
+        regressor=reg,
+        groups=groups,
+        seed=seed,
+        **evaluate_kwargs,
+    )
     res["_notes"] = notes + coord_notes + res.get("_notes", [])
     res["_target_shape"] = tuple(target_slide.x.shape)
     res["_generated_shape"] = tuple(gen.x.shape)
@@ -505,6 +573,29 @@ def build_spatial_classifier(
     return clf
 
 
+def build_spatial_regressor(
+    ckpt_path: str,
+    input_dim: int,
+    *,
+    hidden_dim: int = 64,
+    num_heads: int = 4,
+    mask_centroid: bool = True,
+):
+    """Reconstruct the masked-centroid expression regressor and load a checkpoint into it.
+
+    The regressor reuses ``SpatialCTClassifierNet`` with ``output_dim == input_dim``; checkpoint
+    loading also attaches the training KNN ``k`` so reconstruction eval rebuilds matching niches.
+    """
+    return build_spatial_classifier(
+        ckpt_path,
+        input_dim,
+        input_dim,
+        hidden_dim=hidden_dim,
+        num_heads=num_heads,
+        mask_centroid=mask_centroid,
+    )
+
+
 def _generated_from_mapping(m) -> GeneratedNiches | GeneratedSlide:
     """Build generated cells from an ``x``/``pos`` mapping (``.npz`` or an unpickled dict).
 
@@ -580,6 +671,9 @@ def _main() -> None:
     ap.add_argument(
         "--classifier", default=None, help="optional classifier .ckpt (enables the ct/* groups)"
     )
+    ap.add_argument(
+        "--regressor", default=None, help="optional expression-regressor .ckpt (enables recon)"
+    )
     ap.add_argument("--out", default=None, help="optional path to write a metric,value CSV")
     ap.add_argument(
         "--expr_key", default=None, help="obsm/layers key for expression (default: adata.X)"
@@ -627,6 +721,18 @@ def _main() -> None:
     ap.add_argument(
         "--ct_real_n", type=int, default=2000, help="centroids sampled when --ct_real_reference fixed"
     )
+    ap.add_argument(
+        "--recon_real_reference",
+        default="fixed",
+        choices=("paired", "fixed"),
+        help="how recon/mse_real is measured: 'fixed' (default, model-independent) or 'paired'",
+    )
+    ap.add_argument(
+        "--recon_real_n",
+        type=int,
+        default=2000,
+        help="centroids sampled when --recon_real_reference fixed",
+    )
     # Spatial classifier net hyperparameters (must match training; only used with --classifier).
     ap.add_argument("--hidden_dim", type=int, default=64)
     ap.add_argument("--num_heads", type=int, default=4)
@@ -639,7 +745,13 @@ def _main() -> None:
         ct_key=args.ct_key,
         n_pcs=args.n_pcs,
         classifier=args.classifier,
+        regressor=args.regressor,
         classifier_kwargs=dict(
+            hidden_dim=args.hidden_dim,
+            num_heads=args.num_heads,
+            mask_centroid=not args.no_mask_centroid,
+        ),
+        regressor_kwargs=dict(
             hidden_dim=args.hidden_dim,
             num_heads=args.num_heads,
             mask_centroid=not args.no_mask_centroid,
@@ -654,6 +766,8 @@ def _main() -> None:
         apply_lognorm=not args.no_apply_lognorm,
         ct_real_reference=args.ct_real_reference,
         ct_real_n=args.ct_real_n,
+        recon_real_reference=args.recon_real_reference,
+        recon_real_n=args.recon_real_n,
     )
 
     skipped = res.pop("_skipped")

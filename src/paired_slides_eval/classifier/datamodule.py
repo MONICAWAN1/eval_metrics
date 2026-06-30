@@ -16,6 +16,7 @@ class H5ADCTDataModule(LightningDataModule):
         train_ratio: float = 0.8,
         val_ratio: float = 0.1,
         n_neighbors: int | None = None,
+        target: str = "ct",
     ) -> None:
         super().__init__()
         self.data_fp = data_fp
@@ -28,12 +29,17 @@ class H5ADCTDataModule(LightningDataModule):
         # None -> gene-expression-only classifier; an int -> spatial microenvironment
         # classifier with that many nearest neighbours per cell.
         self.n_neighbors = n_neighbors
+        # Supervision for the spatial dataset: "ct" (cell-type label) or "expr" (the centroid's
+        # expression vector, for the masked-centroid expression regressor).
+        self.target = target
 
     def prepare_data(self) -> None:
         if self.n_neighbors is None:
             self.dataset = H5ADCTDataset(self.data_fp)
         else:
-            self.dataset = SpatialH5ADCTDataset(self.data_fp, n_neighbors=self.n_neighbors)
+            self.dataset = SpatialH5ADCTDataset(
+                self.data_fp, n_neighbors=self.n_neighbors, target=self.target
+            )
 
     def setup(self, stage: str) -> None:
         dataset_size = len(self.dataset)
