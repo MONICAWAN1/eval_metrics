@@ -80,6 +80,18 @@ dev = [
     "jupyterlab>=4.0",
 ]
 
+# Pin the torch wheel to the CUDA 12.6 build. PyPI's default torch is now the cu13 build, which needs
+# a CUDA-13 driver; the cluster GPU nodes (e.g. oven-0-17) have a 12.7 driver, so cu13 torch fails to
+# init ("NVIDIA driver too old"). cu126 (CUDA 12.6 runtime) runs fine under a 12.7 driver; cu128 would
+# need a 12.8 driver. Same torch version (2.12.1), just the cu126 build.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+
 [tool.hatch.metadata]
 allow-direct-references = true
 

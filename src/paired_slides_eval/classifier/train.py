@@ -68,7 +68,10 @@ def main(config: DictConfig) -> float | None:
         if ckpt_path == "":
             _logger.warning("Best ckpt not found! Using current weights for testing...")
             ckpt_path = None
-        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+        # weights_only=False: a Lightning .ckpt carries the OmegaConf hyperparameters (a DictConfig),
+        # which PyTorch 2.6+'s default weights_only=True load rejects. These are our own trusted
+        # checkpoints (matches build_spatial_classifier on the eval side).
+        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path, weights_only=False)
         _logger.info(f"Best ckpt path: {ckpt_path}")
 
     test_metrics = trainer.callback_metrics
