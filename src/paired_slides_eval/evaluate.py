@@ -600,13 +600,17 @@ def _generated_from_mapping(m) -> GeneratedNiches | GeneratedSlide:
     """Build generated cells from an ``x``/``pos`` mapping (``.npz`` or an unpickled dict).
 
     Niche-shaped if ``x`` is 3-D ``(B, N, D)`` (optionally with ``gt_x``/``gt_pos``/``gt_ct``),
-    else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``.
+    else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``. A persisted ``source_pca__*`` recipe (for
+    model-native reduced cells) is rebuilt and attached so evaluate can reproject them.
     """
+    from paired_slides_eval.pipeline.io import read_source_pca
+
     x = np.asarray(m["x"])
+    source_pca = read_source_pca(m)
     if x.ndim == 3:
         extra = {k: np.asarray(m[k]) for k in ("gt_x", "gt_pos", "gt_ct") if k in m}
-        return GeneratedNiches(x=x, pos=np.asarray(m["pos"]), **extra)
-    return GeneratedSlide(x=x, pos=np.asarray(m["pos"]))
+        return GeneratedNiches(x=x, pos=np.asarray(m["pos"]), source_pca=source_pca, **extra)
+    return GeneratedSlide(x=x, pos=np.asarray(m["pos"]), source_pca=source_pca)
 
 
 def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiches | GeneratedSlide:
@@ -621,8 +625,16 @@ def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiche
     if str(path).endswith(".h5ad"):
         adata = read_anndata(path)
         if niche_key in adata.obs:
-            return GeneratedNiches.from_anndata(adata, niche_key=niche_key)
-        return GeneratedSlide.from_anndata(adata)
+            gen = GeneratedNiches.from_anndata(adata, niche_key=niche_key)
+        else:
+            gen = GeneratedSlide.from_anndata(adata)
+        # A model-native PCA recipe, if the generator persisted one, rides in uns['source_pca'].
+        uns = getattr(adata, "uns", None)
+        if uns is not None and "source_pca" in uns:
+            from paired_slides_eval.pipeline.io import read_source_pca
+
+            gen.source_pca = read_source_pca(uns["source_pca"])
+        return gen
 
     if str(path).endswith(".pkl"):
         import pickle

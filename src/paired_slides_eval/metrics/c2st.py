@@ -3,7 +3,8 @@
 Train a binary classifier to tell sample ``X`` (label 0) from ``Y`` (label 1); the held-out
 accuracy/AUC is the statistic. ~0.5 == indistinguishable (good); ~1.0 == trivially separable
 (bad). ``c2st`` / ``c2st_significance`` are the framework-free kernels (follow Lopez-Paz &
-Oquab 2017); ``c2st_metrics`` is the wrapper computing the per-cell joint and pos-only views.
+Oquab 2017); ``c2st_metrics`` is the wrapper computing the per-cell joint, pos-only and
+expression-only views.
 """
 
 from __future__ import annotations
@@ -106,28 +107,38 @@ def c2st_metrics(
     n_perm: int = 0,
     seed: int = 0,
 ) -> dict[str, float]:
-    """Label-free C2ST across two views: per-cell joint ``[x|pos]`` and pos-only.
+    """Label-free C2ST across three views: per-cell joint ``[x|pos]``, pos-only, and expr-only.
 
     The per-cell joint test detects a wrong expression<->position coupling the separate
-    MMD/EMD marginals cannot; the pos-only test is a diagnostic on the spatial marginal.
+    MMD/EMD marginals cannot; the pos-only and expression-only (``gene_*``) tests are diagnostics
+    on the respective marginals — a high ``gene_acc`` with a low ``pos_acc`` (or vice versa) tells
+    which marginal drives a separable joint.
     """
     p = f"{prefix}/" if prefix else ""
     rng = np.random.default_rng(seed)
 
-    # B: per-cell joint [x | pos] (co-generation).
+    # Primary: per-cell joint [x | pos] (co-generation).
     real_joint = subsample(np.concatenate([real_x, real_pos], axis=1), max_n, rng)
     gen_joint = subsample(np.concatenate([gen_x, gen_pos], axis=1), max_n, rng)
     acc, auc = c2st(real_joint, gen_joint, seed=seed, n_folds=n_folds)
 
-    # B diagnostic: per-cell pos-only.
+    # Diagnostic: per-cell pos-only.
     pos_acc, _ = c2st(
         subsample(real_pos, max_n, rng), subsample(gen_pos, max_n, rng), seed=seed, n_folds=n_folds
+    )
+
+    # Diagnostic: per-cell expression-only (the gene marginal). Drawn last so the joint/pos draws
+    # above keep the same RNG state as before this view was added.
+    gene_acc, gene_auc = c2st(
+        subsample(real_x, max_n, rng), subsample(gen_x, max_n, rng), seed=seed, n_folds=n_folds
     )
 
     out = {
         f"{p}c2st/acc": acc,
         f"{p}c2st/auc": auc,
         f"{p}c2st/pos_acc": pos_acc,
+        f"{p}c2st/gene_acc": gene_acc,
+        f"{p}c2st/gene_auc": gene_auc,
     }
     if n_perm > 0:
         sig = c2st_significance(real_joint, gen_joint, n_perm=n_perm, seed=seed)

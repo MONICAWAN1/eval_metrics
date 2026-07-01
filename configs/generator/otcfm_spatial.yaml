@@ -7,8 +7,8 @@ _target_: paired_slides_eval.adapters.otcfm.OTCFMGenerator
 
 sample_n: 0            # 0 -> match the reference cell count
 sample_steps: 100      # midpoint ODE integration steps
-n_pcs: 50              # unused: the generator emits GENE space; set the shared-PCA dim at eval time
-                       # (`evaluate --n_pcs 50`). Kept for back-compat.
+n_pcs: 50              # unused: the generator emits the model's OWN whitened-PCA space (carrying its
+                       # PCA->gene inverse); the shared-PCA(50) basis is fit at eval time. Back-compat.
 ct_key: class          # obs column with cell types on the reference
 coord_mode: generate   # use the model's own generated coordinates (needs a --spatial_key checkpoint)
 spatial_key: spatial   # obsm key for the reference's coordinates

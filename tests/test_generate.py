@@ -63,6 +63,26 @@ def test_flat_round_trip(tmp_path, ext):
     assert isinstance(back, GeneratedSlide) and back.x.shape == (10, 5)
 
 
+@pytest.mark.parametrize("ext", [".h5ad", ".npz"])
+def test_source_pca_round_trip(tmp_path, ext):
+    """A model-native PCA recipe attached to generated cells survives write -> load."""
+    from paired_slides_eval.data.shared_pca import GenPCAInversion
+
+    rng = np.random.default_rng(7)
+    inv = GenPCAInversion(
+        components=rng.normal(size=(5, 12)), mean=rng.normal(size=12),
+        sc_mean=rng.normal(size=5), sc_scale=rng.random(5) + 0.5,
+        var_names=[f"g{i}" for i in range(12)],
+    )
+    g = GeneratedSlide(x=rng.random((10, 5)), pos=rng.random((10, 2)), source_pca=inv)
+    write_generated(g, str(tmp_path / f"g{ext}"))
+    back = _load_generated(str(tmp_path / f"g{ext}"))
+    assert back.source_pca is not None
+    assert back.source_pca.n_pcs == 5 and back.source_pca.n_genes == 12
+    assert np.allclose(back.source_pca.components, inv.components, atol=1e-5)
+    assert list(back.source_pca.var_names) == inv.var_names
+
+
 def test_unsupported_extension_raises(tmp_path):
     g = _slide_generator(source="s", target="t", checkpoint="c").generated
     with pytest.raises(ValueError, match="\\.h5ad.*\\.npz"):

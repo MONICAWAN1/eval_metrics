@@ -40,14 +40,24 @@ from paired_slides_eval.data.anndata import (
 )
 
 
-def _pca_aware_transform(x2d: np.ndarray, pca) -> np.ndarray:
-    """Project ``x2d`` (rows = cells) through ``pca``, or pass it through if already PCA-reduced.
+def _pca_aware_transform(x2d: np.ndarray, pca, source_pca=None) -> np.ndarray:
+    """Project ``x2d`` (rows = cells) into the target ``pca`` basis, auto-detecting its space.
 
-    The space is detected by **feature dimension**: an array whose width matches the PCA's input
-    (raw-feature) dimension is in gene space and gets projected; one whose width matches the PCA's
-    output (component) dimension is taken to be already in that PCA basis and is returned unchanged
-    (so cells generated directly in PCA space — e.g. a flow-matching model — are not double-
-    transformed). Any other width is an error: the cells share neither space with the target.
+    The space is detected by **feature dimension**, in order:
+
+    * width == the PCA's input (raw-feature) dimension → gene-space cells, projected via
+      ``pca.transform``;
+    * width == the PCA's output (component) dimension → already in that PCA basis, returned
+      unchanged (so cells generated directly in the shared basis — e.g. NicheFlow — are not
+      double-transformed);
+    * width == ``source_pca.n_pcs`` (only when a ``source_pca`` is attached) → the cells are in a
+      model-native reduced PCA space of some other dimension ``k``; invert it back to
+      log-normalised gene space (:meth:`GenPCAInversion.to_log_gene`), align that reconstruction to
+      the target's gene panel, then reproject through the shared PCA with
+      ``pca.transform_lognorm`` (log-norm already applied). This is fully generic — ``k`` is read
+      off the attached inverse, never assumed per model.
+
+    Any other width is an error: the cells share none of these spaces with the target.
 
     Detection is dimensional only — when both sides are already reduced it cannot verify they came
     from the *same* PCA fit, so a pre-reduced target and pre-reduced generated cells must share one
@@ -60,10 +70,21 @@ def _pca_aware_transform(x2d: np.ndarray, pca) -> np.ndarray:
         return pca.transform(x2d)
     if feat == out_dim:
         return np.asarray(x2d)
+    if source_pca is not None and feat == source_pca.n_pcs:
+        if not hasattr(pca, "transform_lognorm"):
+            raise ValueError(
+                "Generated cells are in a model-native PCA space and need the shared-PCA recipe to "
+                "reproject; evaluate against a shared preprocess_pair .pkl target (which carries the "
+                "recipe), not a per-target PCA."
+            )
+        gene = source_pca.to_log_gene(x2d)  # (cells, n_genes) in the model's own panel
+        gene = pca.align_genes(gene, source_pca.var_names)  # -> the target basis' panel order
+        return pca.transform_lognorm(gene)
+    native = f" nor the model-native PCA dim {source_pca.n_pcs}" if source_pca is not None else ""
     raise ValueError(
         f"Generated features (dim {feat}) match neither the target PCA's input dim {in_dim} "
-        f"(raw features → would be projected) nor its output dim {out_dim} (already reduced). "
-        "Make sure the generated cells share the target's feature space."
+        f"(raw features → would be projected) nor its output dim {out_dim} (already reduced)"
+        f"{native}. Make sure the generated cells share the target's feature space."
     )
 
 
@@ -220,6 +241,10 @@ class GeneratedNiches:
             (``x/*``, ``pos/*``) and the cell-type classifier metrics (``ct/*``).
         gt_ct: ``(B,)`` true cell-type label of each paired real centroid; enables the classifier
             accuracy-gap metric (``ct/acc_real``, ``ct/acc_gen``, ``ct/acc_gap``).
+        source_pca: optional :class:`~paired_slides_eval.data.shared_pca.GenPCAInversion` when the
+            cells are in a **model-native** reduced PCA space; :meth:`project` uses it to invert them
+            to gene space and reproject into the target's shared basis (see
+            :func:`_pca_aware_transform`). ``None`` for gene-space or already-shared cells.
     """
 
     x: np.ndarray
@@ -227,6 +252,7 @@ class GeneratedNiches:
     gt_x: np.ndarray | None = None
     gt_pos: np.ndarray | None = None
     gt_ct: np.ndarray | None = None
+    source_pca: object | None = None
 
     def __post_init__(self) -> None:
         self.x = np.asarray(self.x)
@@ -283,8 +309,10 @@ class GeneratedNiches:
             if arr is None:
                 return None
             b, n, _ = arr.shape
-            return _pca_aware_transform(arr.reshape(-1, arr.shape[-1]), pca).reshape(b, n, -1)
+            reduced = _pca_aware_transform(arr.reshape(-1, arr.shape[-1]), pca, self.source_pca)
+            return reduced.reshape(b, n, -1)
 
+        # The result is now in the shared basis, so it carries no source_pca (already reconciled).
         return GeneratedNiches(
             x=_proj(self.x), pos=self.pos, gt_x=_proj(self.gt_x), gt_pos=self.gt_pos,
             gt_ct=self.gt_ct,
@@ -373,6 +401,9 @@ class GeneratedSlide:
 
     x: np.ndarray  # (N, n_features)
     pos: np.ndarray  # (N, coord)
+    # Optional model-native PCA inverse (see :class:`GeneratedNiches.source_pca`); ``project`` uses
+    # it to invert model-native reduced cells into the target's shared basis.
+    source_pca: object | None = None
 
     def __post_init__(self) -> None:
         self.x = np.asarray(self.x)
@@ -406,7 +437,8 @@ class GeneratedSlide:
         """
         if pca is None:
             return self
-        return GeneratedSlide(x=_pca_aware_transform(self.x, pca), pos=self.pos)
+        # Projected into the shared basis -> result carries no source_pca (already reconciled).
+        return GeneratedSlide(x=_pca_aware_transform(self.x, pca, self.source_pca), pos=self.pos)
 
     @classmethod
     def from_anndata(

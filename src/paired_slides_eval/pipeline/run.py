@@ -128,6 +128,7 @@ def from_generated_arrays(
     ct_key: str | None = None,
     n_pcs: int | None = 50,
     target_kwargs: dict | None = None,
+    source_pca=None,
 ) -> GenerationOutput:
     """Build a :class:`GenerationOutput` from in-memory generated arrays + a target.
 
@@ -147,15 +148,21 @@ def from_generated_arrays(
         target: a ready :class:`TargetSlide`, or an AnnData / ``.h5ad`` path to build one from.
         gt_x / gt_pos / gt_ct: optional paired ground truth (niche-shaped only).
         ct_key / n_pcs / target_kwargs: used only when building the target from AnnData.
+        source_pca: a :class:`~paired_slides_eval.data.shared_pca.GenPCAInversion` when ``x`` is in a
+            **model-native** reduced PCA space (not gene space and not the target's shared basis); it
+            is carried on the generated cells so a later ``project`` / evaluate step inverts them to
+            gene space and reprojects into the shared basis (dimension auto-detected).
     """
     import numpy as np
 
     target_slide = _resolve_target(target, ct_key=ct_key, n_pcs=n_pcs, **(target_kwargs or {}))
     x = np.asarray(x)
     if x.ndim == 3:
-        generated = GeneratedNiches(x=x, pos=pos, gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct)
+        generated = GeneratedNiches(
+            x=x, pos=pos, gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct, source_pca=source_pca
+        )
     else:
-        generated = GeneratedSlide(x=x, pos=pos)
+        generated = GeneratedSlide(x=x, pos=pos, source_pca=source_pca)
     return GenerationOutput(target=target_slide, generated=generated.project(target_slide.pca))
 
 

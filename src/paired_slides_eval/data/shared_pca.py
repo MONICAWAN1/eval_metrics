@@ -75,7 +75,16 @@ class SharedGenePCA:
             totals = x.sum(axis=1, keepdims=True)
             totals[totals == 0] = 1.0
             x = np.log1p(x / totals * self.target_sum)
-        x = x - self.lognorm_mean
+        return self.transform_lognorm(x)
+
+    def transform_lognorm(self, genes: np.ndarray) -> np.ndarray:
+        """Project **already log-normalised** ``genes`` ``(cells, n_genes)`` into whitened X_pca.
+
+        The ``normalize_total + log1p`` head of :meth:`transform` is skipped — use this when the
+        input is already in the log-normalised gene space (e.g. a model-native PCA inverted back to
+        log-gene by :class:`GenPCAInversion`), so it is not double-log-normalised.
+        """
+        x = np.asarray(genes, dtype=np.float64) - self.lognorm_mean
         x = x @ np.asarray(self.pcs, dtype=np.float64)  # (cells, n_pcs)
         x = (x - self.xpca_mean) / self.xpca_std
         return x.astype(np.float32)
@@ -110,6 +119,66 @@ def shared_pca_from_dataclass(ds, *, apply_lognorm: bool = True) -> SharedGenePC
         var_names=list(ds.var_names) if getattr(ds, "var_names", None) is not None else None,
         apply_lognorm=apply_lognorm,
     )
+
+
+@dataclass
+class GenPCAInversion:
+    """A generative model's own PCA -> log-normalised-gene inverse, carried with its cells.
+
+    Some models emit expression in *their own* reduced PCA space — a ``k``-dim, optionally per-PC
+    standardised/whitened PCA fit on the model's training data (e.g. the OT-CFM baseline emits
+    whitened PCA scores, the space it trained in). Two different PCA fits (different components,
+    possibly different ``k``, fit on different data) share **no** direct linear map; their only
+    common ground is the log-normalised gene space both were fit on. So to score such a model in the
+    shared whitened-PCA basis, evaluation first inverts the model-native PCA back to that gene space,
+    then reprojects through the shared :class:`SharedGenePCA` (via
+    :meth:`SharedGenePCA.transform_lognorm`, since the reconstruction is already log-normalised).
+
+    This holds the frozen inverse so evaluation can do it **generically** — the component count
+    ``k`` is read off ``components`` (see :attr:`n_pcs`), never hard-coded per model.
+
+    Attributes:
+        components: ``(k, n_genes)`` PCA loadings (sklearn ``pca.components_``), so
+            ``log_gene = scores @ components + mean``.
+        mean: ``(n_genes,)`` PCA centering mean — the per-gene mean of the model's log-normalised
+            fit data.
+        sc_mean / sc_scale: ``(k,)`` per-PC un-whitening stats (``scores = z * sc_scale + sc_mean``);
+            zeros / ones when the model did not whiten.
+        var_names: the model's gene-panel order, so the reconstructed genes can be aligned to the
+            shared basis' panel before reprojection; ``None`` when unknown.
+    """
+
+    components: np.ndarray  # (k, n_genes)
+    mean: np.ndarray  # (n_genes,)
+    sc_mean: np.ndarray  # (k,)
+    sc_scale: np.ndarray  # (k,)
+    var_names: list | None = None
+
+    @property
+    def n_pcs(self) -> int:
+        """``k`` — the model-native reduced dimension, used to auto-detect this space by width."""
+        return int(np.asarray(self.components).shape[0])
+
+    @property
+    def n_genes(self) -> int:
+        """``n_genes`` — the model's gene-panel size (width of the reconstructed log-gene cells)."""
+        return int(np.asarray(self.components).shape[1])
+
+    def to_log_gene(self, z: np.ndarray) -> np.ndarray:
+        """Invert model-native PCA scores ``(cells, k)`` back to log-normalised gene expression.
+
+        ``scores = z * sc_scale + sc_mean`` (un-whiten) then ``scores @ components + mean``
+        (un-PCA). Linear and lossless up to the ``k``-component truncation; it stops at the
+        log-normalised space (no ``expm1``), so no raw counts are ever fabricated.
+        """
+        z = np.asarray(z, dtype=np.float64)
+        scores = z * np.asarray(self.sc_scale, dtype=np.float64) + np.asarray(
+            self.sc_mean, dtype=np.float64
+        )
+        gene = scores @ np.asarray(self.components, dtype=np.float64) + np.asarray(
+            self.mean, dtype=np.float64
+        )
+        return gene.astype(np.float32)
 
 
 @dataclass

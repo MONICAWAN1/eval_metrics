@@ -1,13 +1,15 @@
 # OT-CFM (fm_mnist) generation adapter. Selected with `generator=otcfm`.
-# Unconditional, expression-only baseline: it generates whitened-PCA expression and has NO spatial
-# coordinates, so cells get placeholder coords from the reference. The meaningful metrics are the
-# expression ones (distribution, c2st) -- score with `--groups distribution c2st`.
+# Unconditional, expression-only baseline: it generates expression in its OWN whitened-PCA space
+# (the space it trained in) and has NO spatial coordinates, so cells get placeholder coords from the
+# reference. The generated cells carry the model's PCA->gene inverse so eval reprojects them into the
+# shared basis automatically. The meaningful metrics are the expression ones (distribution, c2st) --
+# score with `--groups distribution c2st`.
 _target_: paired_slides_eval.adapters.otcfm.OTCFMGenerator
 
 sample_n: 0            # 0 -> match the reference cell count
 sample_steps: 100      # midpoint ODE integration steps
-n_pcs: 50              # unused now: the generator emits GENE space; set the shared-PCA dim at
-                       # eval time instead (`evaluate --n_pcs 50`). Kept for back-compat.
+n_pcs: 50              # unused now: the generator emits the model's OWN whitened-PCA space; the
+                       # shared-PCA(50) basis is fit at eval time instead. Kept for back-compat.
 ct_key: class          # obs column with cell types on the reference
 coord_mode: random     # placeholder coords: 'reference' (resample target positions) | 'random'
 spatial_key: spatial   # obsm key for the reference's coordinates

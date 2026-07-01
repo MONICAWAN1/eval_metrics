@@ -12,6 +12,7 @@ from sklearn.decomposition import PCA
 
 from paired_slides_eval.data.shared_pca import (
     CoordStandardizer,
+    GenPCAInversion,
     SharedGenePCA,
     coord_standardizer_from_dataclass,
     shared_pca_from_dataclass,
@@ -73,6 +74,58 @@ def test_apply_lognorm_false_skips_normalization():
     )
     got = spca.transform(logn)
     assert np.allclose(got, (x_unwhit - xmean) / xstd, atol=1e-5)
+
+
+def _fit_model_pca(logn, n_pcs):
+    """A model's OWN whitened PCA over already-log-normalised genes -> (GenPCAInversion, scores)."""
+    pca = PCA(n_components=n_pcs).fit(logn)
+    scores = pca.transform(logn)
+    sc_mean, sc_scale = scores.mean(0), scores.std(0)
+    whit = (scores - sc_mean) / sc_scale
+    inv = GenPCAInversion(
+        components=pca.components_, mean=pca.mean_, sc_mean=sc_mean, sc_scale=sc_scale
+    )
+    return inv, whit
+
+
+def test_gen_pca_inversion_reconstructs_log_gene():
+    # Cells that live exactly in the model's k-dim subspace invert back without truncation loss.
+    rng = np.random.default_rng(4)
+    n_genes, k = 12, 5
+    basis, _ = np.linalg.qr(rng.normal(size=(n_genes, k)))  # (n_genes, k) orthonormal columns
+    logn = rng.normal(size=(30, k)) @ basis.T + rng.normal(size=n_genes)  # in the k-subspace
+    inv, whit = _fit_model_pca(logn, n_pcs=k)
+    assert inv.n_pcs == k and inv.n_genes == n_genes
+    assert np.allclose(inv.to_log_gene(whit), logn, atol=1e-6)
+
+
+def test_source_pca_reprojects_into_shared_basis():
+    """A model-native PCA (dim k) is inverted to log-gene and reprojected into the shared PCA."""
+    from paired_slides_eval.contract import _pca_aware_transform
+
+    rng = np.random.default_rng(5)
+    n_genes, k, n_pcs = 12, 5, 3
+    # Shared recipe over log-gene (apply_lognorm=False: inputs are already log-normalised).
+    train = rng.normal(size=(200, n_genes))
+    shared_pca = PCA(n_components=n_pcs).fit(train)
+    pcs = shared_pca.components_.T
+    xun = (train - shared_pca.mean_) @ pcs
+    shared = SharedGenePCA(
+        pcs=pcs, lognorm_mean=shared_pca.mean_, xpca_mean=xun.mean(0), xpca_std=xun.std(0),
+        target_sum=1.0, var_names=[f"g{i}" for i in range(n_genes)], apply_lognorm=False,
+    )
+    # Cells exactly in the model's k-subspace, encoded to its whitened PCA scores.
+    basis, _ = np.linalg.qr(rng.normal(size=(n_genes, k)))
+    logn = rng.normal(size=(15, k)) @ basis.T + rng.normal(size=n_genes)
+    inv, whit = _fit_model_pca(logn, n_pcs=k)
+
+    got = _pca_aware_transform(whit, shared, inv)  # width k -> invert + reproject
+    assert got.shape == (15, n_pcs)
+    assert np.allclose(got, shared.transform_lognorm(logn), atol=1e-5)
+
+    # Without the recipe the same foreign-width array is an error (unchanged behaviour).
+    with pytest.raises(ValueError, match="match neither"):
+        _pca_aware_transform(whit, shared, None)
 
 
 def test_align_genes_reorders_to_fit_panel():

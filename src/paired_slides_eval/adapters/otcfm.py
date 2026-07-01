@@ -1,9 +1,18 @@
 """OT-CFM (fm_mnist) generation adapter.
 
 A thin :class:`BaseGenerator` over the existing fm_mnist OT-CFM — it reuses fm_mnist's own code
-(``VelocityMLP`` / ``sample_prior`` / ``midpoint_sample`` / ``invert_pca_expression``) and only adds
-glue. It loads the checkpoint, samples the prior through the learned velocity field, inverts the
-whitened-PCA back to gene space, and returns a comparable ``(target, generated)`` pair.
+(``VelocityMLP`` / ``sample_prior`` / ``midpoint_sample``) and only adds glue. It loads the
+checkpoint, samples the prior through the learned velocity field, and returns a comparable
+``(target, generated)`` pair with the expression left in the model's **own whitened-PCA space**
+(the space it trained in) — no inversion to gene space.
+
+Instead of inverting the PCA here, the adapter attaches the model's PCA -> log-gene inverse (a
+:class:`~paired_slides_eval.data.shared_pca.GenPCAInversion`, built from the checkpoint ``stats``)
+to the generated cells. The evaluator then reconciles feature space **generically**: it detects the
+model-native PCA dimension, inverts it to the log-normalised gene space, and reprojects into the
+shared whitened-PCA(50) basis (see :func:`paired_slides_eval.contract._pca_aware_transform`). This
+keeps the OT-CFM cells lognormed throughout — the old ``expm1``/clip round-trip through raw counts
+is gone.
 
 The OT-CFM is **unconditional**. By default it is **expression-only** (it generates whitened-PCA
 expression, no coordinates): ``source`` is ignored and generated cells get **placeholder**
@@ -33,7 +42,8 @@ class OTCFMGenerator(BaseGenerator):
     Construction parameters (from ``configs/generator/otcfm.yaml``):
         sample_n: number of cells to generate (0 -> match the reference cell count).
         sample_steps: midpoint-ODE integration steps.
-        n_pcs: components for the shared PCA fit on the reference (target).
+        n_pcs: unused — the adapter emits the model's own PCA space and the shared-PCA(50) basis is
+            fit at evaluate time (kept for config back-compat).
         ct_key: ``obs`` column with cell types on the reference (for the ``ct/*`` groups).
         coord_mode: how generated cells get coordinates — ``"generate"`` reads the **model's own**
             coordinate tail (only valid for a checkpoint trained with ``--spatial_key``: the naive
@@ -71,13 +81,12 @@ class OTCFMGenerator(BaseGenerator):
     def __call__(self, *, source, target, checkpoint, **_) -> GenerationOutput:
         import sys
 
-        import pandas as pd
         import torch
 
         if self.fm_root:
             sys.path.insert(0, str(self.fm_root))
         try:
-            from fm.data import invert_coords, invert_pca_expression, sample_prior
+            from fm.data import invert_coords, sample_prior
             from fm.networks import VelocityMLP
             from fm.sampling import midpoint_sample
         except ModuleNotFoundError as exc:  # pragma: no cover
@@ -87,6 +96,7 @@ class OTCFMGenerator(BaseGenerator):
             ) from exc
 
         from paired_slides_eval.data.anndata import read_anndata
+        from paired_slides_eval.data.shared_pca import GenPCAInversion
 
         # Rebuild the trained model from the checkpoint (fm_mnist's own format).
         ckpt = torch.load(checkpoint, map_location=self.device, weights_only=False)
@@ -117,18 +127,17 @@ class OTCFMGenerator(BaseGenerator):
                     "'reference'/'random'."
                 )
             gen, gen_pos = gen[:, :-coord_dim], invert_coords(gen[:, -coord_dim:], stats)
-        gen_counts = invert_pca_expression(gen, stats)  # (n_gen, n_model_genes)
 
-        # Align the model's gene panel to the reference's var order so the shared PCA projects right.
-        gen_var = pd.Index([str(v) for v in stats["var_names"]])
-        idx = gen_var.get_indexer([str(v) for v in tgt.var_names])
-        if (idx < 0).any():
-            missing = [str(v) for v, j in zip(tgt.var_names, idx) if j < 0][:5]
-            raise ValueError(
-                f"Reference has genes not in the OT-CFM panel (e.g. {missing}); use the slide the "
-                "OT-CFM was trained on as the reference."
-            )
-        gen_counts = gen_counts[:, idx]
+        # Keep the expression in the model's OWN whitened-PCA space (no inversion to gene space).
+        # Carry the PCA -> log-gene inverse so the evaluator can reproject it into the shared basis
+        # generically (it detects this PCA's dimension; nothing here is hard-coded to the target).
+        source_pca = GenPCAInversion(
+            components=np.asarray(stats["pca_components"], dtype=np.float64),  # (k, n_model_genes)
+            mean=np.asarray(stats["pca_mean"], dtype=np.float64).ravel(),  # (n_model_genes,)
+            sc_mean=np.asarray(stats["sc_mean"], dtype=np.float64).ravel(),  # (k,)
+            sc_scale=np.asarray(stats["sc_scale"], dtype=np.float64).ravel(),  # (k,)
+            var_names=[str(v) for v in stats["var_names"]],
+        )
 
         if self.coord_mode == "generate":
             # the model produced its own coordinates (un-standardized above)
@@ -143,8 +152,7 @@ class OTCFMGenerator(BaseGenerator):
                 lo, hi = ref_pos.min(axis=0), ref_pos.max(axis=0)
                 pos = rng.uniform(lo, hi, size=(n_gen, ref_pos.shape[1]))
 
-        # Return GENE-space cells (no projection): the evaluator reconciles feature space (fit a
-        # raw-gene PCA via `evaluate --n_pcs <N>`, or project through a shared-PCA target pickle via
-        # `evaluate --shared_pca`). Pre-projecting here would NOT match a separately-fit target PCA
-        # (different rotation/sign) and breaks the standalone evaluate step.
-        return from_generated_arrays(gen_counts, pos, tgt, ct_key=self.ct_key, n_pcs=None)
+        # Return model-native PCA cells with the inverse attached (no projection here): the evaluator
+        # reconciles feature space against a shared-PCA target pickle (`evaluate --target <pair.pkl>`),
+        # inverting this PCA to log-gene and reprojecting into the shared whitened-PCA(50) basis.
+        return from_generated_arrays(gen, pos, tgt, ct_key=self.ct_key, n_pcs=None, source_pca=source_pca)
