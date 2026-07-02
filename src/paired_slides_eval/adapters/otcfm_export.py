@@ -1,0 +1,72 @@
+"""Export the shared source+target PCA (NicheFlow recipe) as an ``fm_mnist`` ``load_spatial_pca``
+stats ``.npz``, so OT-CFM can be **trained in that exact basis** instead of fitting its own.
+
+The OT-CFM trainer (``fm_mnist/scripts/train_cfm_spatial.py --pca_stats <npz>``) reads this file and
+projects its slide through the injected basis (see ``fm.data.load_spatial_pca(external_stats=...)``),
+so the generated cells land directly in the shared whitened-PCA(50) space the niche models live in --
+no post-hoc inversion/reprojection, and no rank deficiency. This keeps ``fm_mnist`` decoupled: it only
+reads a plain ``.npz`` and never imports ``paired_slides_eval``/``nicheflow``.
+
+The npz keys mirror what ``load_spatial_pca`` stores in its own ``stats`` dict, so
+``invert_pca_expression`` and the eval both see the shared basis:
+``pca_components (k, G)``, ``pca_mean (G,)``, ``sc_mean (k,)``, ``sc_scale (k,)``, ``target_sum``,
+``var_names``.
+
+Usage::
+
+    python -m paired_slides_eval.adapters.otcfm_export --pair data/abca_pair.pkl --out shared_pca.npz
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+
+
+def export_shared_pca(pair_pkl: str, out_npz: str) -> dict:
+    """Read a preprocessed pair ``.pkl`` and write its shared PCA as an ``fm_mnist`` stats ``.npz``."""
+    from paired_slides_eval.data.dataclass import load_h5ad_dataset_dataclass
+    from paired_slides_eval.data.shared_pca import shared_pca_from_dataclass
+
+    ds = load_h5ad_dataset_dataclass(pair_pkl)
+    sp = shared_pca_from_dataclass(ds)  # SharedGenePCA: pcs (G,k), lognorm_mean (G,), xpca_mean/std (k,)
+
+    # Map SharedGenePCA -> fm_mnist load_spatial_pca stats. fm_mnist applies normalize_total+log1p
+    # itself, then does (L - pca_mean) @ pca_components.T, whitened by (.- sc_mean)/sc_scale -- exactly
+    # SharedGenePCA's linear tail, so the two projections are numerically identical.
+    stats = {
+        "space": "pca",
+        "n_pcs": int(np.asarray(sp.pcs).shape[1]),
+        "whiten": True,
+        "pca_components": np.asarray(sp.pcs, dtype=np.float32).T,   # (k, G)
+        "pca_mean": np.asarray(sp.lognorm_mean, dtype=np.float32),  # (G,)
+        "sc_mean": np.asarray(sp.xpca_mean, dtype=np.float32),      # (k,)
+        "sc_scale": np.asarray(sp.xpca_std, dtype=np.float32),      # (k,)
+        "target_sum": np.float32(sp.target_sum),
+        "var_names": np.asarray([str(v) for v in sp.var_names]),
+    }
+    Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
+    np.savez(out_npz, **stats)
+    return stats
+
+
+def _main() -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        description="Export the shared PCA as an fm_mnist load_spatial_pca .npz (for OT-CFM training)."
+    )
+    ap.add_argument("--pair", required=True, help="preprocessed pair .pkl (from preprocess_pair)")
+    ap.add_argument("--out", required=True, help="output .npz path")
+    args = ap.parse_args()
+
+    s = export_shared_pca(args.pair, args.out)
+    print(
+        f"wrote {args.out}: k={s['n_pcs']} PCs, {len(s['var_names'])} genes, "
+        f"target_sum={float(s['target_sum']):.1f}"
+    )
+
+
+if __name__ == "__main__":
+    _main()

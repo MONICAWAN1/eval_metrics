@@ -91,7 +91,11 @@ def _to_nicheflow_dataclass(ds):
 
     from nicheflow.preprocessing import H5ADDatasetDataclass as NFDataclass
 
-    return NFDataclass(**{f.name: getattr(ds, f.name) for f in fields(ds)})
+    # Copy only the fields nicheflow's dataclass declares — our dataclass has gained eval-side recipe
+    # fields (lognorm_*, var_names, neutral_*) that the (older) upstream nicheflow schema rejects and
+    # generation doesn't need.
+    nf_fields = {f.name for f in fields(NFDataclass)}
+    return NFDataclass(**{f.name: getattr(ds, f.name) for f in fields(ds) if f.name in nf_fields})
 
 
 def _build_flow(pca_dim, coord_dim, ohe_dim, *, num_steps, solver, variant, vfm_objective="GLVFM"):
