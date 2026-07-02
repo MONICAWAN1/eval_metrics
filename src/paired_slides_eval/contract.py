@@ -43,43 +43,29 @@ from paired_slides_eval.data.anndata import (
 def _pca_aware_transform(x2d: np.ndarray, pca, source_pca=None) -> np.ndarray:
     """Project ``x2d`` (rows = cells) into the target ``pca`` basis, auto-detecting its space.
 
-    The space is detected by **feature dimension**, in order:
+    Detected by **feature width**, in order:
 
-    * width == the PCA's input (raw-feature) dimension → gene-space cells, projected via
-      ``pca.transform``;
-    * width == the PCA's output (component) dimension → already in that PCA basis, returned
-      unchanged (so cells generated directly in the shared basis — e.g. NicheFlow — are not
-      double-transformed);
-    * width == ``source_pca.n_pcs`` (only when a ``source_pca`` is attached) → the cells are in a
-      model-native reduced PCA space of some other dimension ``k``; invert it back to
-      log-normalised gene space (:meth:`GenPCAInversion.to_log_gene`), align that reconstruction to
-      the target's gene panel, then reproject through the shared PCA with
-      ``pca.transform_lognorm`` (log-norm already applied). This is fully generic — ``k`` is read
-      off the attached inverse, never assumed per model.
+    * ``source_pca`` attached (width == its ``k``) → the cells are in a model-native reduced PCA;
+      invert to log-gene (:meth:`GenPCAInversion.to_log_gene`), align to the target panel, forward
+      through ``pca`` (``transform_lognorm`` if it whitens/lognorms, else ``transform``). Checked
+      **first** so a model in its own basis never passes through as if already reduced.
+    * width == the PCA's input (gene) dim → gene-space cells, projected via ``pca.transform``.
+    * width == the PCA's output (component) dim → already in this basis, returned unchanged.
 
-    Any other width is an error: the cells share none of these spaces with the target.
-
-    Detection is dimensional only — when both sides are already reduced it cannot verify they came
-    from the *same* PCA fit, so a pre-reduced target and pre-reduced generated cells must share one
-    basis (the usual way: build both from the same preprocessing).
+    Any other width is an error. Detection is dimensional only — two pre-reduced sides must share one
+    fit (build both from the same preprocessing).
     """
     feat = x2d.shape[-1]
     in_dim = pca.components.shape[1]   # raw-feature (gene) dimension the PCA was fit on
     out_dim = pca.components.shape[0]  # number of components (reduced dimension)
+    if source_pca is not None and feat == source_pca.n_pcs:
+        gene = source_pca.to_log_gene(x2d)  # (cells, n_genes) in the model's own panel
+        gene = pca.align_genes(gene, source_pca.var_names)  # -> the target basis' panel order
+        return getattr(pca, "transform_lognorm", pca.transform)(gene)
     if feat == in_dim:
         return pca.transform(x2d)
     if feat == out_dim:
         return np.asarray(x2d)
-    if source_pca is not None and feat == source_pca.n_pcs:
-        if not hasattr(pca, "transform_lognorm"):
-            raise ValueError(
-                "Generated cells are in a model-native PCA space and need the shared-PCA recipe to "
-                "reproject; evaluate against a shared preprocess_pair .pkl target (which carries the "
-                "recipe), not a per-target PCA."
-            )
-        gene = source_pca.to_log_gene(x2d)  # (cells, n_genes) in the model's own panel
-        gene = pca.align_genes(gene, source_pca.var_names)  # -> the target basis' panel order
-        return pca.transform_lognorm(gene)
     native = f" nor the model-native PCA dim {source_pca.n_pcs}" if source_pca is not None else ""
     raise ValueError(
         f"Generated features (dim {feat}) match neither the target PCA's input dim {in_dim} "
@@ -171,26 +157,26 @@ class TargetSlide:
         timepoint: str | None = None,
         shared_pca: bool | str = "auto",
         apply_lognorm: bool = True,
+        k: int | None = None,
     ) -> TargetSlide:
         """Build a ``TargetSlide`` from a **preprocessed-slide pickle** (an ``H5ADDatasetDataclass``).
 
-        Expression comes from ``X_pca`` (whitened shared PCA), coordinates from ``coords``
-        (standardised), labels from ``ct``. When the pickle also carries the gene->X_pca **recipe**
-        (``preprocess_pair`` persists it), this reconstructs a
-        :class:`~paired_slides_eval.data.shared_pca.SharedGenePCA` on ``.pca`` and a
-        :class:`~paired_slides_eval.data.shared_pca.CoordStandardizer` on ``.coord_transform`` — so a
-        model that emits **gene-space** cells + **raw** coords (the OT-CFM baseline) is projected into
-        the *same* basis the niche models live in, while already-reduced cells pass through unchanged.
+        ``.pca`` is the **neutral basis** ``P*`` (unwhitened PCA on the real target's log-gene) when
+        the pickle carries it — the fair, model-neutral space; ``.x`` is the target's ``P*`` scores at
+        ``k`` (default ``ds.neutral_k`` headline). Older pickles fall back to the whitened
+        ``SharedGenePCA`` / ``X_pca``. Coordinates come from ``coords`` (standardised) with a
+        ``CoordStandardizer`` on ``.coord_transform``. Every model's cells reproject onto ``.pca``.
 
         Args:
-            ds_or_path: an ``H5ADDatasetDataclass`` or a path to a ``.pkl``.
-            timepoint: which slide to use as the target (default: the last in ``timepoints_ordered``).
-            shared_pca: ``"auto"`` (default) attaches the recipe transform **iff the pickle carries
-                it**, else leaves ``.pca = None`` (a pre-recipe pickle still works for already-reduced
-                cells). ``True`` forces it (raises if the recipe is absent); ``False`` never attaches.
-            apply_lognorm: forwarded to ``SharedGenePCA`` — set ``False`` if the gene-space cells are
-                already log-normalised. Used only when the transform is attached.
+            ds_or_path: a dataclass or ``.pkl`` path.
+            timepoint: target slide (default: last in ``timepoints_ordered``).
+            shared_pca: ``"auto"`` attaches ``.pca`` iff the pickle carries a basis, else ``None``;
+                ``True`` forces it, ``False`` never attaches.
+            apply_lognorm: forwarded to the basis — ``False`` if gene-space cells are already log-normed.
+            k: neutral-basis dimension to score at (default ``ds.neutral_k``); the k-sweep varies it.
         """
+        from paired_slides_eval.data.dataclass import slide_expression_matrix
+        from paired_slides_eval.data.neutral_basis import neutral_basis_from_dataclass
         from paired_slides_eval.data.shared_pca import (
             coord_standardizer_from_dataclass,
             shared_pca_from_dataclass,
@@ -205,7 +191,7 @@ class TargetSlide:
         t = timepoint or ds.timepoints_ordered[-1]
         idx = np.asarray(ds.timepoint_indices[t])
 
-        x = np.asarray(ds.X_pca)[idx]
+        x = slide_expression_matrix(ds, k)[idx]  # neutral P* scores if present, else X_pca
         pos = np.asarray(ds.coords)[idx]
         ct_raw = np.asarray(ds.ct)[idx]
         if np.issubdtype(ct_raw.dtype, np.integer):
@@ -217,11 +203,14 @@ class TargetSlide:
         pca = coord_transform = None
         if shared_pca:  # True or "auto"
             try:
-                pca = shared_pca_from_dataclass(ds, apply_lognorm=apply_lognorm)
+                if getattr(ds, "neutral_pcs", None) is not None:
+                    pca = neutral_basis_from_dataclass(ds, k=k, apply_lognorm=apply_lognorm)
+                else:
+                    pca = shared_pca_from_dataclass(ds, apply_lognorm=apply_lognorm)
                 coord_transform = coord_standardizer_from_dataclass(ds, t)
             except ValueError:
                 if shared_pca != "auto":
-                    raise  # explicit shared_pca=True on a pickle without the recipe -> surface it
+                    raise  # explicit shared_pca=True on a pickle without a basis -> surface it
                 pca = coord_transform = None  # "auto" on a pre-recipe pickle -> plain reduced target
 
         return cls(

@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from paired_slides_eval.data.dataclass import load_h5ad_dataset_dataclass
+from paired_slides_eval.data.dataclass import load_h5ad_dataset_dataclass, slide_expression_matrix
 from paired_slides_eval.metrics._common import knn_indices
 from paired_slides_eval.utils.log import RankedLogger
 
@@ -20,8 +20,9 @@ class H5ADCTDataset(Dataset):
     def __init__(self, filepath: str) -> None:
         ds = load_h5ad_dataset_dataclass(filepath=filepath)
 
-        # PCA-reduced gene expressions
-        self.X = torch.Tensor(ds.X_pca)
+        # Neutral basis P* scores (headline k) if present, else whitened X_pca — the same space the
+        # models are scored in, so the probe matches eval.
+        self.X = torch.Tensor(slide_expression_matrix(ds))
 
         # The cell types
         ct_to_int_vec = np.vectorize(ds.ct_to_int.get)
@@ -73,9 +74,10 @@ class SpatialH5ADCTDataset(Dataset):
         # Flat index -> (timepoint, centroid local id)
         self.index: list[tuple[str, int]] = []
 
+        expr = slide_expression_matrix(ds)  # neutral P* scores (headline k) if present, else X_pca
         for timepoint in ds.timepoints_ordered:
             indices = ds.timepoint_indices[timepoint]
-            self.x_by_t[timepoint] = torch.as_tensor(ds.X_pca[indices], dtype=torch.float32)
+            self.x_by_t[timepoint] = torch.as_tensor(expr[indices], dtype=torch.float32)
             self.ct_by_t[timepoint] = torch.as_tensor(
                 ct_to_int_vec(ds.ct[indices]), dtype=torch.long
             )

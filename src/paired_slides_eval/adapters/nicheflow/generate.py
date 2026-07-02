@@ -33,10 +33,12 @@ class GenerationResult:
     gt_x: np.ndarray  # (B, N, pca_dim) paired real target microenvironments
     gt_pos: np.ndarray  # (B, N, coord_dim)
     gt_ct: np.ndarray  # (B,) true cell-type label of each paired real centroid
+    source_pca: object | None = None  # NicheFlow's own PCA inverse, so eval reprojects onto P*
 
     def to_generated_niches(self) -> GeneratedNiches:
         return GeneratedNiches(
-            x=self.x, pos=self.pos, gt_x=self.gt_x, gt_pos=self.gt_pos, gt_ct=self.gt_ct
+            x=self.x, pos=self.pos, gt_x=self.gt_x, gt_pos=self.gt_pos, gt_ct=self.gt_ct,
+            source_pca=self.source_pca,
         )
 
     def to_anndata(self):
@@ -60,6 +62,27 @@ class GenerationResult:
         adata.obs = adata.obs.astype({"niche_id": "int64", "gt_ct": "int64"})
         adata.obs.index = pd.RangeIndex(b * n).astype(str)
         return adata
+
+
+def _source_pca_from_dataclass(ds):
+    """NicheFlow's own whitened-PCA inverse, so its cells reproject onto the neutral basis at eval.
+
+    Un-whiten uses ``stats['X_pca']`` mean/std; un-PCA uses ``PCs`` + ``lognorm_mean`` — the very
+    recipe NicheFlow trained in. Returns ``None`` on pre-recipe pickles.
+    """
+    from paired_slides_eval.data.shared_pca import GenPCAInversion
+
+    xpca = ds.stats.get("X_pca") if getattr(ds, "stats", None) else None
+    if getattr(ds, "PCs", None) is None or getattr(ds, "lognorm_mean", None) is None or not xpca:
+        return None
+    return GenPCAInversion(
+        components=np.asarray(ds.PCs, dtype=np.float64).T,  # (k, n_genes)
+        mean=np.asarray(ds.lognorm_mean, dtype=np.float64).ravel(),
+        sc_mean=np.asarray(xpca["mean"], dtype=np.float64).ravel(),
+        sc_scale=np.asarray(xpca["std"], dtype=np.float64).ravel(),
+        var_names=list(ds.var_names) if getattr(ds, "var_names", None) is not None else None,
+        target_sum=float(ds.lognorm_target_sum) if ds.lognorm_target_sum is not None else None,
+    )
 
 
 def _to_nicheflow_dataclass(ds):
@@ -186,4 +209,7 @@ def generate(
     centroid_ids = np.asarray(ds.subsampled_timepoint_idx[t2], dtype=np.int64)
     gt_ct = ct_int[centroid_ids][: x.shape[0]]
 
-    return GenerationResult(x=x, pos=pos, gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct)
+    return GenerationResult(
+        x=x, pos=pos, gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct,
+        source_pca=_source_pca_from_dataclass(ds),
+    )

@@ -37,9 +37,11 @@ def _main() -> None:
     import argparse
 
     from paired_slides_eval.adapters.nicheflow.preprocess import (
+        SLIDE_B,
         preprocess_classifier_slide,
         preprocess_pair,
     )
+    from paired_slides_eval.data.neutral_basis import attach_neutral_basis, fit_neutral_basis
 
     ap = argparse.ArgumentParser(
         description="Build the shared pair + classifier-slide pickles (NicheFlow recipe) for the "
@@ -74,6 +76,19 @@ def _main() -> None:
         dy=args.dy,
         device=args.device,
     )
+
+    # Fit the model-neutral basis P* on the target's log-gene (from pre._log_gene, aligned with
+    # X_pca) and attach it to both the pair pkl and the classifier slide, so every model + the probes
+    # are scored in one fair space. This is the universal step — not part of any generator.
+    basis, pair_scores = fit_neutral_basis(
+        pre._log_gene,
+        pre.timepoint_indices[SLIDE_B],
+        n_pcs=args.n_pcs,
+        target_sum=ds_pair.lognorm_target_sum,
+        var_names=ds_pair.var_names,
+    )
+    attach_neutral_basis(ds_pair, basis, pair_scores)
+
     clf_ds = preprocess_classifier_slide(
         args.classifier_slide,
         pre,
@@ -82,6 +97,7 @@ def _main() -> None:
         dx=args.dx,
         dy=args.dy,
         device=args.device,
+        neutral_basis=basis,
     )
 
     _dump(ds_pair, args.out_pair)

@@ -125,27 +125,17 @@ def shared_pca_from_dataclass(ds, *, apply_lognorm: bool = True) -> SharedGenePC
 class GenPCAInversion:
     """A generative model's own PCA -> log-normalised-gene inverse, carried with its cells.
 
-    Some models emit expression in *their own* reduced PCA space — a ``k``-dim, optionally per-PC
-    standardised/whitened PCA fit on the model's training data (e.g. the OT-CFM baseline emits
-    whitened PCA scores, the space it trained in). Two different PCA fits (different components,
-    possibly different ``k``, fit on different data) share **no** direct linear map; their only
-    common ground is the log-normalised gene space both were fit on. So to score such a model in the
-    shared whitened-PCA basis, evaluation first inverts the model-native PCA back to that gene space,
-    then reprojects through the shared :class:`SharedGenePCA` (via
-    :meth:`SharedGenePCA.transform_lognorm`, since the reconstruction is already log-normalised).
-
-    This holds the frozen inverse so evaluation can do it **generically** — the component count
-    ``k`` is read off ``components`` (see :attr:`n_pcs`), never hard-coded per model.
+    Two PCA fits share no direct linear map, only the log-gene space they were both fit on. So a
+    model emitting its own reduced PCA (OT-CFM, NicheFlow) carries this inverse; eval un-projects to
+    log-gene, then forwards through the neutral basis. ``k`` is read off ``components`` — never
+    hard-coded.
 
     Attributes:
-        components: ``(k, n_genes)`` PCA loadings (sklearn ``pca.components_``), so
-            ``log_gene = scores @ components + mean``.
-        mean: ``(n_genes,)`` PCA centering mean — the per-gene mean of the model's log-normalised
-            fit data.
-        sc_mean / sc_scale: ``(k,)`` per-PC un-whitening stats (``scores = z * sc_scale + sc_mean``);
-            zeros / ones when the model did not whiten.
-        var_names: the model's gene-panel order, so the reconstructed genes can be aligned to the
-            shared basis' panel before reprojection; ``None`` when unknown.
+        components: ``(k, n_genes)`` loadings (sklearn ``components_``): ``log_gene = scores @ components + mean``.
+        mean: ``(n_genes,)`` PCA centering mean (per-gene mean of the model's log-gene fit data).
+        sc_mean / sc_scale: ``(k,)`` un-whitening stats (``scores = z * sc_scale + sc_mean``); 0/1 if unwhitened.
+        var_names: the model's gene-panel order, for aligning to the neutral basis' panel; ``None`` if unknown.
+        target_sum: the model's ``normalize_total`` scale (τ), for the cross-model log-norm consistency guard.
     """
 
     components: np.ndarray  # (k, n_genes)
@@ -153,6 +143,7 @@ class GenPCAInversion:
     sc_mean: np.ndarray  # (k,)
     sc_scale: np.ndarray  # (k,)
     var_names: list | None = None
+    target_sum: float | None = None
 
     @property
     def n_pcs(self) -> int:

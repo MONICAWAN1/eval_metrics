@@ -137,6 +137,7 @@ class OTCFMGenerator(BaseGenerator):
             sc_mean=np.asarray(stats["sc_mean"], dtype=np.float64).ravel(),  # (k,)
             sc_scale=np.asarray(stats["sc_scale"], dtype=np.float64).ravel(),  # (k,)
             var_names=[str(v) for v in stats["var_names"]],
+            target_sum=float(stats["target_sum"]) if stats.get("target_sum") is not None else None,
         )
 
         if self.coord_mode == "generate":

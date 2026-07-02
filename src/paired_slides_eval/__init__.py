@@ -35,7 +35,7 @@ configuration via :mod:`paired_slides_eval.generate` and :mod:`paired_slides_eva
 """
 
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide, TargetSlide
-from paired_slides_eval.evaluate import ALL_GROUPS, evaluate, evaluate_files
+from paired_slides_eval.evaluate import ALL_GROUPS, evaluate, evaluate_files, sweep_neutral_k
 from paired_slides_eval.pipeline import generate_cells, write_generated
 
 __all__ = [
@@ -46,5 +46,6 @@ __all__ = [
     "evaluate",
     "evaluate_files",
     "generate_cells",
+    "sweep_neutral_k",
     "write_generated",
 ]

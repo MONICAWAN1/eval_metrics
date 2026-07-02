@@ -68,6 +68,27 @@ class H5ADDatasetDataclass:
     lognorm_target_sum: float | None = None
     var_names: list | None = None
 
+    # === Neutral basis P* (optional) === #
+    # An *unwhitened* PCA fit on the real target slide's log-gene expression — the fair, model-neutral
+    # space every model is scored in (see docs/neutral_basis_eval_plan.md). ``neutral_x`` holds every
+    # cell's P* scores (row-aligned with ``X_pca``); ``neutral_k`` is the scree-knee headline dim.
+    neutral_pcs: np.ndarray | None = None  # (n_genes, 50) loadings
+    neutral_mean: np.ndarray | None = None  # (n_genes,) log-gene centering mean
+    neutral_target_sum: float | None = None  # τ used for the fit (== lognorm_target_sum)
+    neutral_x: np.ndarray | None = None  # (n_cells, 50) P* scores, X_pca row order
+    neutral_k: int | None = None  # headline dimension (scree knee)
+
+
+def slide_expression_matrix(ds, k: int | None = None) -> np.ndarray:
+    """The per-cell expression matrix to score in: neutral ``P*`` scores if present, else ``X_pca``.
+
+    Sliced to ``k`` (default ``ds.neutral_k`` headline) so target, probes, and generated share one k.
+    """
+    if getattr(ds, "neutral_x", None) is not None:
+        k = int(k or getattr(ds, "neutral_k", None) or ds.neutral_x.shape[1])
+        return np.asarray(ds.neutral_x)[:, : min(k, ds.neutral_x.shape[1])]
+    return np.asarray(ds.X_pca)
+
 
 def load_h5ad_dataset_dataclass(filepath: str) -> H5ADDatasetDataclass:
     fp = Path(filepath)

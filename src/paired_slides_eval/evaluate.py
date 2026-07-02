@@ -350,6 +350,22 @@ def _detect_coord_space(gen_pos: np.ndarray, coord_transform) -> str:
     return "passthrough" if to_standardised <= to_raw else "standardize"
 
 
+def _check_target_sum(target_pca, source_pca) -> list[str]:
+    """Guard #1: log a residual if the model's log-norm τ differs from the neutral basis' τ.
+
+    ``log(1+·)`` is nonlinear, so mismatched ``target_sum`` puts the reconstructions at different
+    saturations that no linear ``P*`` can reconcile — a known residual, not something a basis fixes.
+    """
+    tau_star = getattr(target_pca, "target_sum", None)
+    tau_model = getattr(source_pca, "target_sum", None)
+    if tau_star and tau_model and not np.isclose(tau_star, tau_model, rtol=1e-3):
+        return [
+            f"target_sum mismatch: model τ={tau_model:.1f} vs neutral-basis τ={tau_star:.1f} "
+            "— log-norm reconstructions sit at different saturations (residual, not a basis issue)."
+        ]
+    return []
+
+
 def _reconcile_generated(generated, target, *, coords: str = "auto"):
     """Bring ``generated`` coordinates into the target's frame; return ``(generated, notes)``.
 
@@ -429,7 +445,8 @@ def evaluate_files(
         generated: the generated cells as a path — ``.h5ad`` (flat or niche-shaped), ``.npz``, or
             ``.pkl``.
         ct_key: ``obs`` column with cell types (``.h5ad`` target only; a ``.pkl`` already has labels).
-        n_pcs: ``.h5ad`` target only — fit a per-target PCA to ``n_pcs`` (legacy path).
+        n_pcs: neutral-basis dimension ``k`` for a ``.pkl`` target (default ``ds.neutral_k``); the
+            k-sweep varies it. For a ``.h5ad`` target, a legacy per-target PCA dim.
         classifier: a ready classifier module, or a path to a ``.ckpt`` (enables the ``ct/*`` groups).
         regressor: a ready masked-centroid expression regressor module, or a path to a ``.ckpt``
             (enables the ``recon`` group).
@@ -450,7 +467,7 @@ def evaluate_files(
     notes: list[str] = []
     if isinstance(target, str) and target.endswith(".pkl"):
         target_slide = TargetSlide.from_dataclass(
-            target, timepoint=timepoint, apply_lognorm=apply_lognorm
+            target, timepoint=timepoint, apply_lognorm=apply_lognorm, k=n_pcs
         )
     else:
         raise ValueError(
@@ -458,7 +475,9 @@ def evaluate_files(
             "shared preprocess_pair .pkl as the target to compare models."
         )
 
-    gen = _load_generated(generated).project(target_slide.pca)
+    gen = _load_generated(generated)
+    notes += _check_target_sum(target_slide.pca, getattr(gen, "source_pca", None))
+    gen = gen.project(target_slide.pca)
     gen, coord_notes = _reconcile_generated(gen, target_slide, coords=coords)
 
     clf = classifier
@@ -489,6 +508,26 @@ def evaluate_files(
     res["_target_shape"] = tuple(target_slide.x.shape)
     res["_generated_shape"] = tuple(gen.x.shape)
     return res
+
+
+def sweep_neutral_k(
+    target,
+    generated,
+    *,
+    ks: tuple[int, ...] = (5, 10, 20, 30, 50),
+    groups: tuple[str, ...] = ("distribution", "c2st", "c2st_nn"),
+    **evaluate_files_kwargs,
+) -> dict[int, dict]:
+    """Re-score ``generated`` at each neutral-basis dimension ``k`` — for ranking-stability reports.
+
+    Only expression-space groups depend on ``k`` (coord/spatial groups are k-invariant; probes train
+    at one k, so exclude them). Returns ``{k: {metric: value}}``. Loop this over models to compare.
+    """
+    out: dict[int, dict] = {}
+    for k in ks:
+        res = evaluate_files(target, generated, groups=groups, n_pcs=k, **evaluate_files_kwargs)
+        out[k] = {m: v for m, v in res.items() if not m.startswith("_")}
+    return out
 
 
 def _has_paired_niches(generated) -> bool:
@@ -669,7 +708,7 @@ def _main() -> None:
         "--target",
         required=True,
         help="the target slide: a .h5ad (raw genes + coords) or a preprocessed-slide .pkl "
-        "(X_pca already reduced; --n_pcs/--expr_key are then ignored)",
+        "(scored in the neutral basis P*; --n_pcs selects its dimension k, --expr_key ignored)",
     )
     ap.add_argument(
         "--generated",
@@ -706,8 +745,8 @@ def _main() -> None:
         "--n_pcs",
         type=int,
         default=None,
-        help="for a .h5ad target only: fit a per-target PCA to n PCs (legacy, NOT cross-model "
-        "comparable). For comparison, pass a shared preprocess_pair .pkl as --target instead.",
+        help="neutral-basis dimension k for a .pkl target (default: the pickle's scree-knee "
+        "headline); the k-sweep varies it. For a .h5ad target: legacy per-target PCA (not comparable).",
     )
     ap.add_argument(
         "--coords",
