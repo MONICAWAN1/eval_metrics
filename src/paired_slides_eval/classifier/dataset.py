@@ -20,8 +20,7 @@ class H5ADCTDataset(Dataset):
     def __init__(self, filepath: str) -> None:
         ds = load_h5ad_dataset_dataclass(filepath=filepath)
 
-        # Neutral basis P* scores (headline k) if present, else whitened X_pca — the same space the
-        # models are scored in, so the probe matches eval.
+        # Whitened X_pca — the shared basis the models are scored in, so the probe matches eval.
         self.X = torch.Tensor(slide_expression_matrix(ds))
 
         # The cell types
@@ -74,7 +73,7 @@ class SpatialH5ADCTDataset(Dataset):
         # Flat index -> (timepoint, centroid local id)
         self.index: list[tuple[str, int]] = []
 
-        expr = slide_expression_matrix(ds)  # neutral P* scores (headline k) if present, else X_pca
+        expr = slide_expression_matrix(ds)  # shared whitened X_pca
         for timepoint in ds.timepoints_ordered:
             indices = ds.timepoint_indices[timepoint]
             self.x_by_t[timepoint] = torch.as_tensor(expr[indices], dtype=torch.float32)

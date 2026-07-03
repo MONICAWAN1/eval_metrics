@@ -3,16 +3,13 @@
 A thin :class:`BaseGenerator` over the existing fm_mnist OT-CFM — it reuses fm_mnist's own code
 (``VelocityMLP`` / ``sample_prior`` / ``midpoint_sample``) and only adds glue. It loads the
 checkpoint, samples the prior through the learned velocity field, and returns a comparable
-``(target, generated)`` pair with the expression left in the model's **own whitened-PCA space**
-(the space it trained in) — no inversion to gene space.
+``(target, generated)`` pair with the expression in the model's whitened-PCA space (the space it
+trained in).
 
-Instead of inverting the PCA here, the adapter attaches the model's PCA -> log-gene inverse (a
-:class:`~paired_slides_eval.data.shared_pca.GenPCAInversion`, built from the checkpoint ``stats``)
-to the generated cells. The evaluator then reconciles feature space **generically**: it detects the
-model-native PCA dimension, inverts it to the log-normalised gene space, and reprojects into the
-shared whitened-PCA(50) basis (see :func:`paired_slides_eval.contract._pca_aware_transform`). This
-keeps the OT-CFM cells lognormed throughout — the old ``expm1``/clip round-trip through raw counts
-is gone.
+The OT-CFM is trained **in the shared whitened-PCA(50) basis** (via fm_mnist's
+``train_cfm_spatial.py --pca_stats``, which injects NicheFlow's shared PCA), so its generated cells
+already live in the target's basis: the evaluator passes them straight through — no inversion, no
+reprojection (see :func:`paired_slides_eval.contract._pca_aware_transform`).
 
 The OT-CFM is **unconditional**. By default it is **expression-only** (it generates whitened-PCA
 expression, no coordinates): ``source`` is ignored and generated cells get **placeholder**
@@ -96,7 +93,6 @@ class OTCFMGenerator(BaseGenerator):
             ) from exc
 
         from paired_slides_eval.data.anndata import read_anndata
-        from paired_slides_eval.data.shared_pca import GenPCAInversion
 
         # Rebuild the trained model from the checkpoint (fm_mnist's own format).
         ckpt = torch.load(checkpoint, map_location=self.device, weights_only=False)
@@ -115,8 +111,11 @@ class OTCFMGenerator(BaseGenerator):
             gen = midpoint_sample(model, prior.clone(), steps=self.sample_steps)
         gen = gen.cpu().numpy()
 
-        # Naive spatial baseline: a checkpoint trained with --spatial_key emits
-        # [expression | coords]; split off the coord tail and un-standardize it to real coords.
+        # Naive spatial baseline: a checkpoint trained with --spatial_key emits [expression | coords].
+        # Split off the coord tail. If it was trained in the shared coord frame (coord_frame='shared',
+        # standardised with the target's stats), emit those standardised coords as-is — symmetric with
+        # the shared-PCA expression, so the eval passes them through. A legacy (self-frame) checkpoint
+        # is un-standardised back to raw coords for the eval to reconcile.
         coord_dim = int(stats.get("coord_dim", 0))
         gen_pos = None
         if self.coord_mode == "generate":
@@ -126,22 +125,14 @@ class OTCFMGenerator(BaseGenerator):
                     "expression-only. Retrain with `--spatial_key spatial`, or use coord_mode "
                     "'reference'/'random'."
                 )
-            gen, gen_pos = gen[:, :-coord_dim], invert_coords(gen[:, -coord_dim:], stats)
-
-        # Keep the expression in the model's OWN whitened-PCA space (no inversion to gene space).
-        # Carry the PCA -> log-gene inverse so the evaluator can reproject it into the shared basis
-        # generically (it detects this PCA's dimension; nothing here is hard-coded to the target).
-        source_pca = GenPCAInversion(
-            components=np.asarray(stats["pca_components"], dtype=np.float64),  # (k, n_model_genes)
-            mean=np.asarray(stats["pca_mean"], dtype=np.float64).ravel(),  # (n_model_genes,)
-            sc_mean=np.asarray(stats["sc_mean"], dtype=np.float64).ravel(),  # (k,)
-            sc_scale=np.asarray(stats["sc_scale"], dtype=np.float64).ravel(),  # (k,)
-            var_names=[str(v) for v in stats["var_names"]],
-            target_sum=float(stats["target_sum"]) if stats.get("target_sum") is not None else None,
-        )
+            gen, coord_tail = gen[:, :-coord_dim], gen[:, -coord_dim:]
+            if stats.get("coord_frame") == "shared":
+                gen_pos = coord_tail
+            else:
+                gen_pos = invert_coords(coord_tail, stats)
 
         if self.coord_mode == "generate":
-            # the model produced its own coordinates (un-standardized above)
+            # the model produced its own coordinates (shared-frame standardised, or raw for legacy)
             pos = gen_pos
         else:
             # the OT-CFM is aspatial -> placeholder coordinates from the reference.
@@ -153,7 +144,6 @@ class OTCFMGenerator(BaseGenerator):
                 lo, hi = ref_pos.min(axis=0), ref_pos.max(axis=0)
                 pos = rng.uniform(lo, hi, size=(n_gen, ref_pos.shape[1]))
 
-        # Return model-native PCA cells with the inverse attached (no projection here): the evaluator
-        # reconciles feature space against a shared-PCA target pickle (`evaluate --target <pair.pkl>`),
-        # inverting this PCA to log-gene and reprojecting into the shared whitened-PCA(50) basis.
-        return from_generated_arrays(gen, pos, tgt, ct_key=self.ct_key, n_pcs=None, source_pca=source_pca)
+        # The model is trained in the shared whitened-PCA(50) basis (via fm_mnist's --pca_stats), so
+        # `gen` is already in the target's space: the evaluator passes it straight through.
+        return from_generated_arrays(gen, pos, tgt, ct_key=self.ct_key, n_pcs=None)

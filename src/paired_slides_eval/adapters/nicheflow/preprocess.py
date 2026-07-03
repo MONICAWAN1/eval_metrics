@@ -108,9 +108,6 @@ def preprocess_pair(
     # Also stash the normalize_total target_sum, so the gene -> X_pca recipe can be fully replayed
     # on new (gene-space) cells via SharedGenePCA — persisted by to_dataclass().
     pre._lognorm_target_sum = target_sum
-    # Hand off the pair's log-gene (adata order, aligned with X_pca) so the *model-neutral*
-    # basis P* can be fit outside this adapter (prepare_shared_slides -> data.neutral_basis).
-    pre._log_gene = adata.X.toarray() if hasattr(adata.X, "toarray") else np.asarray(adata.X)
     return pre.to_dataclass(), pre
 
 
@@ -176,13 +173,12 @@ def preprocess_classifier_slide(
     dx: float = 0.15,
     dy: float = 0.2,
     device: str = "cpu",
-    neutral_basis=None,
 ) -> H5ADDatasetDataclass:
     """Project a held-out classifier slide into the pair's PCA basis + label space.
 
     Reuses ``base_preprocessor``'s log-normalised mean / ``PCs`` / ``ct_ordered`` / ``X_pca`` stats
-    so a classifier trained here applies to the target. When a ``neutral_basis`` (``P*``) is given,
-    also projects this slide into it, so the probe trains in the space the models are scored in.
+    so a classifier trained here applies to the target — i.e. the probe trains in the same shared
+    whitened ``X_pca`` the models are scored in.
     """
     import anndata as ad
     import scanpy as sc
@@ -223,12 +219,4 @@ def preprocess_classifier_slide(
         external_x_pca_stats=base_preprocessor.stats["X_pca"],
     )
     clf_pre.preprocess_data(c)
-    clf_ds = clf_pre.to_dataclass()
-
-    # Project this slide through the pair's neutral basis P* too, so the probe trains in the space
-    # the models are scored in (x_c row order matches X_pca — preprocess_data doesn't reorder).
-    if neutral_basis is not None:
-        from paired_slides_eval.data.neutral_basis import attach_neutral_basis
-
-        attach_neutral_basis(clf_ds, neutral_basis, neutral_basis.project(x_c))
-    return clf_ds
+    return clf_pre.to_dataclass()

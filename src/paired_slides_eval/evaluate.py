@@ -21,9 +21,9 @@ from paired_slides_eval.metrics.c2st import c2st_metrics
 from paired_slides_eval.metrics.c2st_nn import c2st_nn_metrics
 from paired_slides_eval.metrics.classifier_gap import classifier_accuracy_gap
 from paired_slides_eval.metrics.concordance import _resolve_n_neighbors, cell_type_concordance
-from paired_slides_eval.metrics.expr_recon import expr_recon_gap, fixed_reference_mse
 from paired_slides_eval.metrics.distances import point_to_shape, regression_metrics, shape_to_point
 from paired_slides_eval.metrics.distribution import distribution_distance
+from paired_slides_eval.metrics.expr_recon import expr_recon_gap, fixed_reference_mse
 from paired_slides_eval.metrics.morans import morans_compare
 
 ALL_GROUPS = (
@@ -350,22 +350,6 @@ def _detect_coord_space(gen_pos: np.ndarray, coord_transform) -> str:
     return "passthrough" if to_standardised <= to_raw else "standardize"
 
 
-def _check_target_sum(target_pca, source_pca) -> list[str]:
-    """Guard #1: log a residual if the model's log-norm τ differs from the neutral basis' τ.
-
-    ``log(1+·)`` is nonlinear, so mismatched ``target_sum`` puts the reconstructions at different
-    saturations that no linear ``P*`` can reconcile — a known residual, not something a basis fixes.
-    """
-    tau_star = getattr(target_pca, "target_sum", None)
-    tau_model = getattr(source_pca, "target_sum", None)
-    if tau_star and tau_model and not np.isclose(tau_star, tau_model, rtol=1e-3):
-        return [
-            f"target_sum mismatch: model τ={tau_model:.1f} vs neutral-basis τ={tau_star:.1f} "
-            "— log-norm reconstructions sit at different saturations (residual, not a basis issue)."
-        ]
-    return []
-
-
 def _reconcile_generated(generated, target, *, coords: str = "auto"):
     """Bring ``generated`` coordinates into the target's frame; return ``(generated, notes)``.
 
@@ -410,7 +394,6 @@ def evaluate_files(
     generated,
     *,
     ct_key: str | None = None,
-    n_pcs: int | None = None,
     classifier=None,
     regressor=None,
     classifier_kwargs: dict | None = None,
@@ -445,8 +428,6 @@ def evaluate_files(
         generated: the generated cells as a path — ``.h5ad`` (flat or niche-shaped), ``.npz``, or
             ``.pkl``.
         ct_key: ``obs`` column with cell types (``.h5ad`` target only; a ``.pkl`` already has labels).
-        n_pcs: neutral-basis dimension ``k`` for a ``.pkl`` target (default ``ds.neutral_k``); the
-            k-sweep varies it. For a ``.h5ad`` target, a legacy per-target PCA dim.
         classifier: a ready classifier module, or a path to a ``.ckpt`` (enables the ``ct/*`` groups).
         regressor: a ready masked-centroid expression regressor module, or a path to a ``.ckpt``
             (enables the ``recon`` group).
@@ -467,7 +448,7 @@ def evaluate_files(
     notes: list[str] = []
     if isinstance(target, str) and target.endswith(".pkl"):
         target_slide = TargetSlide.from_dataclass(
-            target, timepoint=timepoint, apply_lognorm=apply_lognorm, k=n_pcs
+            target, timepoint=timepoint, apply_lognorm=apply_lognorm
         )
     else:
         raise ValueError(
@@ -476,7 +457,6 @@ def evaluate_files(
         )
 
     gen = _load_generated(generated)
-    notes += _check_target_sum(target_slide.pca, getattr(gen, "source_pca", None))
     gen = gen.project(target_slide.pca)
     gen, coord_notes = _reconcile_generated(gen, target_slide, coords=coords)
 
@@ -508,26 +488,6 @@ def evaluate_files(
     res["_target_shape"] = tuple(target_slide.x.shape)
     res["_generated_shape"] = tuple(gen.x.shape)
     return res
-
-
-def sweep_neutral_k(
-    target,
-    generated,
-    *,
-    ks: tuple[int, ...] = (5, 10, 20, 30, 50),
-    groups: tuple[str, ...] = ("distribution", "c2st", "c2st_nn"),
-    **evaluate_files_kwargs,
-) -> dict[int, dict]:
-    """Re-score ``generated`` at each neutral-basis dimension ``k`` — for ranking-stability reports.
-
-    Only expression-space groups depend on ``k`` (coord/spatial groups are k-invariant; probes train
-    at one k, so exclude them). Returns ``{k: {metric: value}}``. Loop this over models to compare.
-    """
-    out: dict[int, dict] = {}
-    for k in ks:
-        res = evaluate_files(target, generated, groups=groups, n_pcs=k, **evaluate_files_kwargs)
-        out[k] = {m: v for m, v in res.items() if not m.startswith("_")}
-    return out
 
 
 def _has_paired_niches(generated) -> bool:
@@ -639,17 +599,13 @@ def _generated_from_mapping(m) -> GeneratedNiches | GeneratedSlide:
     """Build generated cells from an ``x``/``pos`` mapping (``.npz`` or an unpickled dict).
 
     Niche-shaped if ``x`` is 3-D ``(B, N, D)`` (optionally with ``gt_x``/``gt_pos``/``gt_ct``),
-    else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``. A persisted ``source_pca__*`` recipe (for
-    model-native reduced cells) is rebuilt and attached so evaluate can reproject them.
+    else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``.
     """
-    from paired_slides_eval.pipeline.io import read_source_pca
-
     x = np.asarray(m["x"])
-    source_pca = read_source_pca(m)
     if x.ndim == 3:
         extra = {k: np.asarray(m[k]) for k in ("gt_x", "gt_pos", "gt_ct") if k in m}
-        return GeneratedNiches(x=x, pos=np.asarray(m["pos"]), source_pca=source_pca, **extra)
-    return GeneratedSlide(x=x, pos=np.asarray(m["pos"]), source_pca=source_pca)
+        return GeneratedNiches(x=x, pos=np.asarray(m["pos"]), **extra)
+    return GeneratedSlide(x=x, pos=np.asarray(m["pos"]))
 
 
 def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiches | GeneratedSlide:
@@ -664,16 +620,8 @@ def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiche
     if str(path).endswith(".h5ad"):
         adata = read_anndata(path)
         if niche_key in adata.obs:
-            gen = GeneratedNiches.from_anndata(adata, niche_key=niche_key)
-        else:
-            gen = GeneratedSlide.from_anndata(adata)
-        # A model-native PCA recipe, if the generator persisted one, rides in uns['source_pca'].
-        uns = getattr(adata, "uns", None)
-        if uns is not None and "source_pca" in uns:
-            from paired_slides_eval.pipeline.io import read_source_pca
-
-            gen.source_pca = read_source_pca(uns["source_pca"])
-        return gen
+            return GeneratedNiches.from_anndata(adata, niche_key=niche_key)
+        return GeneratedSlide.from_anndata(adata)
 
     if str(path).endswith(".pkl"):
         import pickle
@@ -707,8 +655,8 @@ def _main() -> None:
     ap.add_argument(
         "--target",
         required=True,
-        help="the target slide: a .h5ad (raw genes + coords) or a preprocessed-slide .pkl "
-        "(scored in the neutral basis P*; --n_pcs selects its dimension k, --expr_key ignored)",
+        help="the target slide: a preprocessed-slide .pkl (scored in the shared whitened X_pca; "
+        "--expr_key ignored)",
     )
     ap.add_argument(
         "--generated",
@@ -741,13 +689,6 @@ def _main() -> None:
         help=f"subset of metric groups to run (default: all -> {', '.join(ALL_GROUPS)})",
     )
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument(
-        "--n_pcs",
-        type=int,
-        default=None,
-        help="neutral-basis dimension k for a .pkl target (default: the pickle's scree-knee "
-        "headline); the k-sweep varies it. For a .h5ad target: legacy per-target PCA (not comparable).",
-    )
     ap.add_argument(
         "--coords",
         default="auto",
@@ -794,7 +735,6 @@ def _main() -> None:
         args.target,
         args.generated,
         ct_key=args.ct_key,
-        n_pcs=args.n_pcs,
         classifier=args.classifier,
         regressor=args.regressor,
         classifier_kwargs=dict(

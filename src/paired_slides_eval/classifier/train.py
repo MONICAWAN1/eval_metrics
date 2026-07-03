@@ -5,8 +5,8 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
 
-from paired_slides_eval.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from paired_slides_eval.utils.exceptions import print_exceptions
+from paired_slides_eval.utils.instantiators import instantiate_callbacks, instantiate_loggers
 from paired_slides_eval.utils.log import RankedLogger, log_hyperparameters, print_config
 from paired_slides_eval.utils.seed import set_seed
 

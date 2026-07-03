@@ -40,17 +40,14 @@ from paired_slides_eval.data.anndata import (
 )
 
 
-def _pca_aware_transform(x2d: np.ndarray, pca, source_pca=None) -> np.ndarray:
+def _pca_aware_transform(x2d: np.ndarray, pca) -> np.ndarray:
     """Project ``x2d`` (rows = cells) into the target ``pca`` basis, auto-detecting its space.
 
-    Detected by **feature width**, in order:
+    Detected by **feature width**:
 
-    * ``source_pca`` attached (width == its ``k``) → the cells are in a model-native reduced PCA;
-      invert to log-gene (:meth:`GenPCAInversion.to_log_gene`), align to the target panel, forward
-      through ``pca`` (``transform_lognorm`` if it whitens/lognorms, else ``transform``). Checked
-      **first** so a model in its own basis never passes through as if already reduced.
     * width == the PCA's input (gene) dim → gene-space cells, projected via ``pca.transform``.
-    * width == the PCA's output (component) dim → already in this basis, returned unchanged.
+    * width == the PCA's output (component) dim → already in this basis, returned unchanged (both
+      models generate directly in the shared whitened X_pca, so this is the usual passthrough).
 
     Any other width is an error. Detection is dimensional only — two pre-reduced sides must share one
     fit (build both from the same preprocessing).
@@ -58,19 +55,14 @@ def _pca_aware_transform(x2d: np.ndarray, pca, source_pca=None) -> np.ndarray:
     feat = x2d.shape[-1]
     in_dim = pca.components.shape[1]   # raw-feature (gene) dimension the PCA was fit on
     out_dim = pca.components.shape[0]  # number of components (reduced dimension)
-    if source_pca is not None and feat == source_pca.n_pcs:
-        gene = source_pca.to_log_gene(x2d)  # (cells, n_genes) in the model's own panel
-        gene = pca.align_genes(gene, source_pca.var_names)  # -> the target basis' panel order
-        return getattr(pca, "transform_lognorm", pca.transform)(gene)
     if feat == in_dim:
         return pca.transform(x2d)
     if feat == out_dim:
         return np.asarray(x2d)
-    native = f" nor the model-native PCA dim {source_pca.n_pcs}" if source_pca is not None else ""
     raise ValueError(
         f"Generated features (dim {feat}) match neither the target PCA's input dim {in_dim} "
-        f"(raw features → would be projected) nor its output dim {out_dim} (already reduced)"
-        f"{native}. Make sure the generated cells share the target's feature space."
+        f"(raw features → would be projected) nor its output dim {out_dim} (already reduced). "
+        "Make sure the generated cells share the target's feature space."
     )
 
 
@@ -157,26 +149,23 @@ class TargetSlide:
         timepoint: str | None = None,
         shared_pca: bool | str = "auto",
         apply_lognorm: bool = True,
-        k: int | None = None,
     ) -> TargetSlide:
         """Build a ``TargetSlide`` from a **preprocessed-slide pickle** (an ``H5ADDatasetDataclass``).
 
-        ``.pca`` is the **neutral basis** ``P*`` (unwhitened PCA on the real target's log-gene) when
-        the pickle carries it — the fair, model-neutral space; ``.x`` is the target's ``P*`` scores at
-        ``k`` (default ``ds.neutral_k`` headline). Older pickles fall back to the whitened
-        ``SharedGenePCA`` / ``X_pca``. Coordinates come from ``coords`` (standardised) with a
-        ``CoordStandardizer`` on ``.coord_transform``. Every model's cells reproject onto ``.pca``.
+        ``.x`` is the target's whitened ``X_pca`` — the shared basis both models generate in. ``.pca``
+        is the :class:`~paired_slides_eval.data.shared_pca.SharedGenePCA` (gene -> whitened X_pca), so
+        any gene-space cells project onto it and already-reduced cells pass through unchanged.
+        Coordinates come from ``coords`` (standardised) with a ``CoordStandardizer`` on
+        ``.coord_transform``.
 
         Args:
             ds_or_path: a dataclass or ``.pkl`` path.
             timepoint: target slide (default: last in ``timepoints_ordered``).
-            shared_pca: ``"auto"`` attaches ``.pca`` iff the pickle carries a basis, else ``None``;
+            shared_pca: ``"auto"`` attaches ``.pca`` iff the pickle carries the recipe, else ``None``;
                 ``True`` forces it, ``False`` never attaches.
             apply_lognorm: forwarded to the basis — ``False`` if gene-space cells are already log-normed.
-            k: neutral-basis dimension to score at (default ``ds.neutral_k``); the k-sweep varies it.
         """
         from paired_slides_eval.data.dataclass import slide_expression_matrix
-        from paired_slides_eval.data.neutral_basis import neutral_basis_from_dataclass
         from paired_slides_eval.data.shared_pca import (
             coord_standardizer_from_dataclass,
             shared_pca_from_dataclass,
@@ -191,7 +180,7 @@ class TargetSlide:
         t = timepoint or ds.timepoints_ordered[-1]
         idx = np.asarray(ds.timepoint_indices[t])
 
-        x = slide_expression_matrix(ds, k)[idx]  # neutral P* scores if present, else X_pca
+        x = slide_expression_matrix(ds)[idx]  # whitened X_pca — the shared basis
         pos = np.asarray(ds.coords)[idx]
         ct_raw = np.asarray(ds.ct)[idx]
         if np.issubdtype(ct_raw.dtype, np.integer):
@@ -203,14 +192,11 @@ class TargetSlide:
         pca = coord_transform = None
         if shared_pca:  # True or "auto"
             try:
-                if getattr(ds, "neutral_pcs", None) is not None:
-                    pca = neutral_basis_from_dataclass(ds, k=k, apply_lognorm=apply_lognorm)
-                else:
-                    pca = shared_pca_from_dataclass(ds, apply_lognorm=apply_lognorm)
+                pca = shared_pca_from_dataclass(ds, apply_lognorm=apply_lognorm)
                 coord_transform = coord_standardizer_from_dataclass(ds, t)
             except ValueError:
                 if shared_pca != "auto":
-                    raise  # explicit shared_pca=True on a pickle without a basis -> surface it
+                    raise  # explicit shared_pca=True on a pickle without the recipe -> surface it
                 pca = coord_transform = None  # "auto" on a pre-recipe pickle -> plain reduced target
 
         return cls(
@@ -230,10 +216,6 @@ class GeneratedNiches:
             (``x/*``, ``pos/*``) and the cell-type classifier metrics (``ct/*``).
         gt_ct: ``(B,)`` true cell-type label of each paired real centroid; enables the classifier
             accuracy-gap metric (``ct/acc_real``, ``ct/acc_gen``, ``ct/acc_gap``).
-        source_pca: optional :class:`~paired_slides_eval.data.shared_pca.GenPCAInversion` when the
-            cells are in a **model-native** reduced PCA space; :meth:`project` uses it to invert them
-            to gene space and reproject into the target's shared basis (see
-            :func:`_pca_aware_transform`). ``None`` for gene-space or already-shared cells.
     """
 
     x: np.ndarray
@@ -241,7 +223,6 @@ class GeneratedNiches:
     gt_x: np.ndarray | None = None
     gt_pos: np.ndarray | None = None
     gt_ct: np.ndarray | None = None
-    source_pca: object | None = None
 
     def __post_init__(self) -> None:
         self.x = np.asarray(self.x)
@@ -298,10 +279,9 @@ class GeneratedNiches:
             if arr is None:
                 return None
             b, n, _ = arr.shape
-            reduced = _pca_aware_transform(arr.reshape(-1, arr.shape[-1]), pca, self.source_pca)
+            reduced = _pca_aware_transform(arr.reshape(-1, arr.shape[-1]), pca)
             return reduced.reshape(b, n, -1)
 
-        # The result is now in the shared basis, so it carries no source_pca (already reconciled).
         return GeneratedNiches(
             x=_proj(self.x), pos=self.pos, gt_x=_proj(self.gt_x), gt_pos=self.gt_pos,
             gt_ct=self.gt_ct,
@@ -390,9 +370,6 @@ class GeneratedSlide:
 
     x: np.ndarray  # (N, n_features)
     pos: np.ndarray  # (N, coord)
-    # Optional model-native PCA inverse (see :class:`GeneratedNiches.source_pca`); ``project`` uses
-    # it to invert model-native reduced cells into the target's shared basis.
-    source_pca: object | None = None
 
     def __post_init__(self) -> None:
         self.x = np.asarray(self.x)
@@ -426,8 +403,7 @@ class GeneratedSlide:
         """
         if pca is None:
             return self
-        # Projected into the shared basis -> result carries no source_pca (already reconciled).
-        return GeneratedSlide(x=_pca_aware_transform(self.x, pca, self.source_pca), pos=self.pos)
+        return GeneratedSlide(x=_pca_aware_transform(self.x, pca), pos=self.pos)
 
     @classmethod
     def from_anndata(

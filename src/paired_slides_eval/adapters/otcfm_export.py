@@ -10,7 +10,10 @@ reads a plain ``.npz`` and never imports ``paired_slides_eval``/``nicheflow``.
 The npz keys mirror what ``load_spatial_pca`` stores in its own ``stats`` dict, so
 ``invert_pca_expression`` and the eval both see the shared basis:
 ``pca_components (k, G)``, ``pca_mean (G,)``, ``sc_mean (k,)``, ``sc_scale (k,)``, ``target_sum``,
-``var_names``.
+``var_names``. It also carries the target slide's **coordinate** standardiser
+(``coord_mean``/``coord_std``, the per-slide all-cells stats NicheFlow uses), so OT-CFM trains on —
+and emits — coordinates in the *same* standardised frame the niche models live in (symmetric with the
+expression fix): no train-split z-score, no raw round-trip, and the eval passes the coords through.
 
 Usage::
 
@@ -46,6 +49,20 @@ def export_shared_pca(pair_pkl: str, out_npz: str) -> dict:
         "target_sum": np.float32(sp.target_sum),
         "var_names": np.asarray([str(v) for v in sp.var_names]),
     }
+
+    # Target slide's coordinate standardiser (per-slide, all cells) — the frame the niche models and
+    # the eval use. OT-CFM standardises its coords with these, so its emitted coords need no eval-side
+    # reconciliation (passthrough), symmetric with the expression basis above.
+    tp = ds.timepoints_ordered[-1]
+    cstats = (ds.stats or {}).get("coords", {}).get(tp)
+    if not cstats or "mean" not in cstats or "std" not in cstats:
+        raise ValueError(
+            f"pair pkl has no standardised coord stats for target {tp!r} "
+            "(build it with standardize_coordinates=True)."
+        )
+    stats["coord_mean"] = np.asarray(cstats["mean"], dtype=np.float32).ravel()
+    stats["coord_std"] = np.asarray(cstats["std"], dtype=np.float32).ravel()
+
     Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
     np.savez(out_npz, **stats)
     return stats
@@ -64,7 +81,8 @@ def _main() -> None:
     s = export_shared_pca(args.pair, args.out)
     print(
         f"wrote {args.out}: k={s['n_pcs']} PCs, {len(s['var_names'])} genes, "
-        f"target_sum={float(s['target_sum']):.1f}"
+        f"target_sum={float(s['target_sum']):.1f}, "
+        f"coord_std={np.round(s['coord_std'], 2).tolist()}"
     )
 
 

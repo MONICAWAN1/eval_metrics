@@ -81,8 +81,7 @@ class SharedGenePCA:
         """Project **already log-normalised** ``genes`` ``(cells, n_genes)`` into whitened X_pca.
 
         The ``normalize_total + log1p`` head of :meth:`transform` is skipped — use this when the
-        input is already in the log-normalised gene space (e.g. a model-native PCA inverted back to
-        log-gene by :class:`GenPCAInversion`), so it is not double-log-normalised.
+        input is already in the log-normalised gene space, so it is not double-log-normalised.
         """
         x = np.asarray(genes, dtype=np.float64) - self.lognorm_mean
         x = x @ np.asarray(self.pcs, dtype=np.float64)  # (cells, n_pcs)
@@ -119,57 +118,6 @@ def shared_pca_from_dataclass(ds, *, apply_lognorm: bool = True) -> SharedGenePC
         var_names=list(ds.var_names) if getattr(ds, "var_names", None) is not None else None,
         apply_lognorm=apply_lognorm,
     )
-
-
-@dataclass
-class GenPCAInversion:
-    """A generative model's own PCA -> log-normalised-gene inverse, carried with its cells.
-
-    Two PCA fits share no direct linear map, only the log-gene space they were both fit on. So a
-    model emitting its own reduced PCA (OT-CFM, NicheFlow) carries this inverse; eval un-projects to
-    log-gene, then forwards through the neutral basis. ``k`` is read off ``components`` — never
-    hard-coded.
-
-    Attributes:
-        components: ``(k, n_genes)`` loadings (sklearn ``components_``): ``log_gene = scores @ components + mean``.
-        mean: ``(n_genes,)`` PCA centering mean (per-gene mean of the model's log-gene fit data).
-        sc_mean / sc_scale: ``(k,)`` un-whitening stats (``scores = z * sc_scale + sc_mean``); 0/1 if unwhitened.
-        var_names: the model's gene-panel order, for aligning to the neutral basis' panel; ``None`` if unknown.
-        target_sum: the model's ``normalize_total`` scale (τ), for the cross-model log-norm consistency guard.
-    """
-
-    components: np.ndarray  # (k, n_genes)
-    mean: np.ndarray  # (n_genes,)
-    sc_mean: np.ndarray  # (k,)
-    sc_scale: np.ndarray  # (k,)
-    var_names: list | None = None
-    target_sum: float | None = None
-
-    @property
-    def n_pcs(self) -> int:
-        """``k`` — the model-native reduced dimension, used to auto-detect this space by width."""
-        return int(np.asarray(self.components).shape[0])
-
-    @property
-    def n_genes(self) -> int:
-        """``n_genes`` — the model's gene-panel size (width of the reconstructed log-gene cells)."""
-        return int(np.asarray(self.components).shape[1])
-
-    def to_log_gene(self, z: np.ndarray) -> np.ndarray:
-        """Invert model-native PCA scores ``(cells, k)`` back to log-normalised gene expression.
-
-        ``scores = z * sc_scale + sc_mean`` (un-whiten) then ``scores @ components + mean``
-        (un-PCA). Linear and lossless up to the ``k``-component truncation; it stops at the
-        log-normalised space (no ``expm1``), so no raw counts are ever fabricated.
-        """
-        z = np.asarray(z, dtype=np.float64)
-        scores = z * np.asarray(self.sc_scale, dtype=np.float64) + np.asarray(
-            self.sc_mean, dtype=np.float64
-        )
-        gene = scores @ np.asarray(self.components, dtype=np.float64) + np.asarray(
-            self.mean, dtype=np.float64
-        )
-        return gene.astype(np.float32)
 
 
 @dataclass
