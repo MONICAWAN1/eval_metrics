@@ -16,7 +16,10 @@ import numpy as np
 
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide, TargetSlide
 from paired_slides_eval.data.anndata import read_anndata
-from paired_slides_eval.metrics._common import build_paired_niches_from_flat
+from paired_slides_eval.metrics._common import (
+    build_paired_niches_from_flat,
+    build_paired_niches_from_flat_fixed_centroids,
+)
 from paired_slides_eval.metrics.c2st import c2st_metrics
 from paired_slides_eval.metrics.c2st_nn import c2st_nn_metrics
 from paired_slides_eval.metrics.classifier_gap import classifier_accuracy_gap
@@ -50,6 +53,7 @@ def evaluate(
     classifier_n_neighbors: int | None = None,
     auto_niche_from_flat: bool = True,
     auto_niche_max: int | None = None,
+    flat_pairing: str = "fixed_target_ot",
     groups: tuple[str, ...] = ALL_GROUPS,
     prefix: str = "test",
     seed: int = 0,
@@ -79,11 +83,14 @@ def evaluate(
     a flat :class:`~paired_slides_eval.contract.GeneratedSlide`. The label-free groups run on
     either. The classifier groups (``concordance``, ``ct_gap``) need paired niches: a
     ``GeneratedNiches`` supplies them directly, while for a flat slide they are reconstructed from
-    geometry when ``auto_niche_from_flat`` is set (each generated cell's neighbourhood paired to the
-    nearest real cell's; ``ct_gap`` additionally needs the target's ``ct`` labels). Set
-    ``auto_niche_max`` to cap how many generated cells are used as niche centroids. ``regression``
-    needs cell-for-cell matched ground truth, which a flat slide cannot provide, so it stays skipped
-    for a flat slide regardless.
+    geometry when ``auto_niche_from_flat`` is set. By default, ``flat_pairing="fixed_target_ot"``
+    holds the target's fixed evaluation centroids (from ``subsampled_timepoint_idx``) constant and
+    assigns each one to a unique generated cell by optimal transport in coordinate space; this
+    mirrors NicheFlow's target-centroid pairing. If the target has no fixed centroids, evaluation
+    falls back to ``"nearest_real"``: generated centroids paired to nearest real cells.
+    Set ``auto_niche_max`` to cap how many fixed target centroids (or fallback generated centroids)
+    are used. ``regression`` needs cell-for-cell matched ground truth, which a flat slide cannot
+    provide, so it stays skipped for a flat slide regardless.
 
     ``ct_real_reference`` controls how ``ct/acc_real`` (in the ``ct_gap`` group) is measured:
     ``"paired"`` (default) scores the real niches paired to the generated centroids — model-dependent;
@@ -188,7 +195,7 @@ def evaluate(
     if niche_model is not None and {"concordance", "ct_gap", "recon"}.intersection(groups):
         if not _has_paired_niches(generated) and isinstance(generated, GeneratedSlide):
             if auto_niche_from_flat:
-                niche_gen = _auto_paired_niches(
+                niche_gen, pair_note = _auto_paired_niches(
                     generated,
                     target,
                     niche_model,
@@ -196,12 +203,10 @@ def evaluate(
                     n_neighbors=classifier_n_neighbors,
                     max_centroids=auto_niche_max,
                     seed=seed,
+                    flat_pairing=flat_pairing,
                 )
                 if niche_gen is not None:
-                    notes.append(
-                        f"classifier niches auto-built from the flat slide via geometry "
-                        f"({niche_gen.x.shape[0]} centroids paired to nearest real cells)"
-                    )
+                    notes.append(pair_note)
 
     if "concordance" in groups:
         if classifier is not None and _has_paired_niches(niche_gen):
@@ -507,7 +512,8 @@ def _auto_paired_niches(
     n_neighbors: int | None,
     max_centroids: int | None,
     seed: int,
-) -> GeneratedNiches | None:
+    flat_pairing: str,
+) -> tuple[GeneratedNiches | None, str]:
     """Reconstruct paired niches from a flat slide via geometry, for the classifier groups.
 
     The niche size matches what the spatial classifier was trained on (``_resolve_n_neighbors``);
@@ -515,15 +521,40 @@ def _auto_paired_niches(
     when there are too few cells to form a niche. ``gt_ct`` is filled only when the target carries
     cell-type labels (``target.ct``), so ``ct_gap`` is enabled exactly when those labels exist.
     """
+    if flat_pairing not in ("fixed_target_ot", "nearest_real"):
+        raise ValueError(
+            f"flat_pairing must be 'fixed_target_ot' or 'nearest_real', got {flat_pairing!r}"
+        )
+
     gen_pos = generated.flat_pos
     if len(gen_pos) < 1 or len(target.pos) < 1:
-        return None
+        return None, "classifier niches not auto-built (empty generated or target slide)"
 
     k = _resolve_n_neighbors(n_neighbors, classifier) if spatial else 1
+    rng = np.random.default_rng(seed)
+
+    if flat_pairing == "fixed_target_ot" and target.eval_centroid_indices is not None:
+        target_centroids = np.asarray(target.eval_centroid_indices, dtype=np.int64)
+        if max_centroids is not None and len(target_centroids) > max_centroids:
+            target_centroids = rng.choice(target_centroids, max_centroids, replace=False)
+        nx, npos, gt_x, gt_pos, gt_ct = build_paired_niches_from_flat_fixed_centroids(
+            generated.flat_x,
+            gen_pos,
+            target.x,
+            target.pos,
+            k,
+            real_ct=target.ct,
+            target_centroid_indices=target_centroids,
+        )
+        niche = GeneratedNiches(x=nx, pos=npos, gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct)
+        return (
+            niche,
+            "classifier niches auto-built from the flat slide via fixed target centroids + OT "
+            f"assignment ({niche.x.shape[0]} target centroids matched to generated cells)",
+        )
 
     centroid_indices = None
     if max_centroids is not None and len(gen_pos) > max_centroids:
-        rng = np.random.default_rng(seed)
         centroid_indices = rng.choice(len(gen_pos), max_centroids, replace=False)
 
     nx, npos, gt_x, gt_pos, gt_ct = build_paired_niches_from_flat(
@@ -535,7 +566,14 @@ def _auto_paired_niches(
         real_ct=target.ct,
         centroid_indices=centroid_indices,
     )
-    return GeneratedNiches(x=nx, pos=npos, gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct)
+    niche = GeneratedNiches(x=nx, pos=npos, gt_x=gt_x, gt_pos=gt_pos, gt_ct=gt_ct)
+    note = (
+        "classifier niches auto-built from the flat slide via nearest-real fallback "
+        f"({niche.x.shape[0]} generated centroids paired to nearest real cells)"
+    )
+    if flat_pairing == "fixed_target_ot":
+        note += "; target has no fixed eval_centroid_indices"
+    return niche, note
 
 
 def build_spatial_classifier(
@@ -714,6 +752,14 @@ def _main() -> None:
         "--ct_real_n", type=int, default=2000, help="centroids sampled when --ct_real_reference fixed"
     )
     ap.add_argument(
+        "--flat_pairing",
+        default="fixed_target_ot",
+        choices=("fixed_target_ot", "nearest_real"),
+        help="for flat generated slides with classifier/recon metrics: 'fixed_target_ot' (default) "
+        "uses the target's fixed evaluation centroids and OT-assigns them to generated cells; "
+        "'nearest_real' uses the legacy generated-centroid nearest-real pairing",
+    )
+    ap.add_argument(
         "--recon_real_reference",
         default="fixed",
         choices=("paired", "fixed"),
@@ -757,6 +803,7 @@ def _main() -> None:
         apply_lognorm=not args.no_apply_lognorm,
         ct_real_reference=args.ct_real_reference,
         ct_real_n=args.ct_real_n,
+        flat_pairing=args.flat_pairing,
         recon_real_reference=args.recon_real_reference,
         recon_real_n=args.recon_real_n,
     )

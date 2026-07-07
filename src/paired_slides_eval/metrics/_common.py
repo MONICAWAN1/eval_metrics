@@ -8,6 +8,7 @@ function operates on plain NumPy arrays so the metrics stay framework-light.
 from __future__ import annotations
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 from scipy.spatial import cKDTree
 
 
@@ -139,6 +140,73 @@ def build_paired_niches_from_flat(
     gt_x = real_x[real_nbr]
     gt_pos = real_pos[real_nbr]
     gt_ct = None if real_ct is None else np.asarray(real_ct)[r0].astype(np.int64)
+    return gen_niche_x, gen_niche_pos, gt_x, gt_pos, gt_ct
+
+
+def build_paired_niches_from_flat_fixed_centroids(
+    gen_x: np.ndarray,
+    gen_pos: np.ndarray,
+    real_x: np.ndarray,
+    real_pos: np.ndarray,
+    k: int,
+    *,
+    target_centroid_indices: np.ndarray,
+    real_ct: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+    """Assemble paired niches for a flat slide using fixed target centroids plus OT assignment.
+
+    This is the cross-model-comparable flat-slide path. NicheFlow already generates at the
+    preprocessed target grid centroids (``subsampled_timepoint_idx``), so its ``gt_*`` pairing is
+    anchored to those target cells. A flat whole-slide model such as OT-CFM has no supplied
+    one-to-one target pairing, so we hold the **same target centroids** fixed and solve a balanced
+    linear assignment from those centroids to generated cells in the shared coordinate frame. Each
+    target centroid gets one unique generated centroid, then both sides build their own spatial KNN
+    neighbourhoods around the matched centroid.
+
+    Args:
+        gen_x / gen_pos: flat generated cells ``(N_gen, n_feat)`` / ``(N_gen, coord)``.
+        real_x / real_pos: the real target cells ``(N_real, n_feat)`` / ``(N_real, coord)``.
+        k: number of **neighbours** per niche (niche size ``k + 1``), clamped per side.
+        target_centroid_indices: local indices of fixed real target centroids to evaluate.
+        real_ct: optional ``(N_real,)`` true labels; labels at the fixed target centroids become
+            ``gt_ct``.
+
+    Returns:
+        ``(gen_niche_x, gen_niche_pos, gt_x, gt_pos, gt_ct)`` in target-centroid order.
+    """
+    gen_x = np.asarray(gen_x)
+    gen_pos = np.asarray(gen_pos)
+    real_x = np.asarray(real_x)
+    real_pos = np.asarray(real_pos)
+    target_centroids = np.asarray(target_centroid_indices, dtype=np.int64)
+
+    if len(gen_pos) < 1 or len(real_pos) < 1:
+        raise ValueError("Need at least one generated and one real cell to build niches.")
+    if len(target_centroids) < 1:
+        raise ValueError("Need at least one fixed target centroid to build niches.")
+    if np.any(target_centroids < 0) or np.any(target_centroids >= len(real_pos)):
+        raise ValueError("target_centroid_indices contains indices outside the real target slide.")
+    if len(gen_pos) < len(target_centroids):
+        raise ValueError(
+            "OT pairing needs at least as many generated cells as fixed target centroids "
+            f"({len(gen_pos)} generated < {len(target_centroids)} target centroids)."
+        )
+
+    target_pos = real_pos[target_centroids].astype(np.float64)
+    gen_pos64 = gen_pos.astype(np.float64)
+    diff = target_pos[:, None, :] - gen_pos64[None, :, :]
+    cost = np.einsum("...d,...d->...", diff, diff)
+    row_ind, gen_centroids = linear_sum_assignment(cost)
+    target_centroids = target_centroids[row_ind]
+
+    gen_nbr = knn_indices(gen_pos, k, centroids=gen_centroids)
+    real_nbr = knn_indices(real_pos, k, centroids=target_centroids)
+
+    gen_niche_x = gen_x[gen_nbr]
+    gen_niche_pos = gen_pos[gen_nbr]
+    gt_x = real_x[real_nbr]
+    gt_pos = real_pos[real_nbr]
+    gt_ct = None if real_ct is None else np.asarray(real_ct)[target_centroids].astype(np.int64)
     return gen_niche_x, gen_niche_pos, gt_x, gt_pos, gt_ct
 
 

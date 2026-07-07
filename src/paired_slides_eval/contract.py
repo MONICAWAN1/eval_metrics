@@ -78,6 +78,8 @@ class TargetSlide:
         n_classes: number of cell types (for proportion histograms).
         pca: the frozen PCA fit on this slide when ``n_pcs`` was given, else ``None``. Apply it to
             generated cells via :meth:`GeneratedNiches.project` so both sides share a basis.
+        eval_centroid_indices: optional local target-cell indices for the fixed evaluation centroid
+            grid. Preprocessed NicheFlow-style pickles fill this from ``subsampled_timepoint_idx``.
     """
 
     x: np.ndarray
@@ -89,6 +91,7 @@ class TargetSlide:
     # model's raw coordinates into this target's standardised frame before evaluating; ``None`` means
     # coordinates are already in the target's frame (nothing to do).
     coord_transform: object | None = None
+    eval_centroid_indices: np.ndarray | None = None
 
     @property
     def moran_grid(self) -> tuple[np.ndarray, np.ndarray]:
@@ -188,6 +191,14 @@ class TargetSlide:
         else:
             ct = np.array([ds.ct_to_int[c] for c in ct_raw], dtype=np.int64)
         n_classes = len(ds.ct_ordered)
+        eval_centroid_indices = None
+        if hasattr(ds, "subsampled_timepoint_idx") and t in ds.subsampled_timepoint_idx:
+            eval_centroid_indices = np.asarray(ds.subsampled_timepoint_idx[t], dtype=np.int64)
+            if np.any(eval_centroid_indices < 0) or np.any(eval_centroid_indices >= len(idx)):
+                raise ValueError(
+                    f"subsampled_timepoint_idx[{t!r}] contains local indices outside the target "
+                    f"timepoint slice of length {len(idx)}."
+                )
 
         pca = coord_transform = None
         if shared_pca:  # True or "auto"
@@ -200,7 +211,13 @@ class TargetSlide:
                 pca = coord_transform = None  # "auto" on a pre-recipe pickle -> plain reduced target
 
         return cls(
-            x=x, pos=pos, ct=ct, n_classes=n_classes, pca=pca, coord_transform=coord_transform
+            x=x,
+            pos=pos,
+            ct=ct,
+            n_classes=n_classes,
+            pca=pca,
+            coord_transform=coord_transform,
+            eval_centroid_indices=eval_centroid_indices,
         )
 
 
@@ -360,9 +377,11 @@ class GeneratedSlide:
     For whole-slide generative models that emit a tissue directly, with no niche/microenvironment
     structure. The label-free metrics — ``psd``, ``spd``, ``distribution``, ``c2st``, ``moran`` —
     consume the flat cloud directly. The classifier metrics (``concordance``, ``ct_gap``) are
-    computed by reconstructing microenvironments from geometry (each cell's neighbourhood paired to
-    the nearest real cell's), so they run too; only ``regression`` needs a :class:`GeneratedNiches`
-    with cell-for-cell matched ground truth and is skipped for a ``GeneratedSlide``.
+    computed by reconstructing microenvironments from geometry. When the target carries fixed
+    evaluation centroids, those target centroids are OT-assigned to generated cells first; otherwise
+    the fallback pairs generated centroids to nearest real cells. Only ``regression`` needs a
+    :class:`GeneratedNiches` with cell-for-cell matched ground truth and is skipped for a
+    ``GeneratedSlide``.
 
     Exposes the same ``flat_x`` / ``flat_pos`` / ``project`` interface as
     :class:`GeneratedNiches`, so :func:`paired_slides_eval.evaluate.evaluate` accepts either.
