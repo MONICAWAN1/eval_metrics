@@ -1,35 +1,52 @@
-# paired-slides-eval
+# Evaluation Metrics for Generative Models on Spatial Transcriptomics
 
-A **model-agnostic evaluation library** for generative models on spatial transcriptomics. It scores
-a set of **generated cells** against a real **target slide** — each given as plain arrays/AnnData files, an
-expression matrix paired with spatial coordinates — and reports the full metric suite. Evaluation is
-decoupled from generation: a model's architecture and sampling code stay wherever the model lives,
-and this library consumes only the cells it produces. An optional integrated-generation layer is
-available for models that ship an adapter (see
-[Optional: integrated generation](#optional-integrated-generation)).
+This repository is a **model-agnostic evaluation library** for generative models on spatial transcriptomics. It scores
+a set of **generated cells** against a real **target slide** — an expression matrix paired with
+spatial coordinates, given as plain arrays/AnnData files — and reports the full metric suite.
+Evaluation is decoupled from generation: a model's architecture and sampling code stay wherever the
+model lives, and this library consumes only the cells it produces. An optional integrated-generation
+layer is available for models that ship an adapter (see [Models & adapters](#models--adapters)).
 
-## Install
+## Package: paired_slides_eval
 
-```bash
-pip install -e .                 # the metrics — all you need to evaluate
-```
-
-Optional extras:
+Install the metric suite with [uv](https://docs.astral.sh/uv/) (each subproject has its own
+per-project `.venv` and lock file):
 
 ```bash
-pip install -e ".[classifier]"   # + the cell-type-classifier training stack (for the ct/* metrics)
-pip install -e ".[pipeline]"     # + Hydra, for configuration-driven generation
-pip install -e ".[nicheflow]"    # + the bundled NicheFlow generation adapter
-pip install -e ".[wandb]"        # + Weights & Biases logging for classifier training
+uv sync                          # the metrics — all you need to evaluate
 ```
 
-Running the bundled NicheFlow adapter needs `[pipeline,nicheflow]` plus the `nicheflow` package
-(not on PyPI): `pip install -e ../nicheflow_mba`.
+The package is organized as:
 
-## Quickstart — evaluate two files
+- **`evaluate` / `contract`** — the headline API (`evaluate_files`, `evaluate`) and the
+  `TargetSlide` / `GeneratedSlide` / `GeneratedNiches` data contract.
+- **`metrics/`** — the metric kernels (distances, distribution, c2st, morans, concordance,
+  classifier_gap); Moran's I and classifier niches are assembled locally.
+- **`data/`** — raw `.h5ad` → arrays, plus the shared-PCA helper that keeps target and generated in
+  one feature space.
+- **`adapters/`** — generation adapters (NicheFlow, OT-CFM) behind the `BaseGenerator` contract
+  *(extra: `pipeline`)*.
+- **`classifier/`** — cell-type-classifier training for the `ct/*` metrics *(extra: `classifier`)*.
+- **`pipeline/` / `generate`** — Hydra-driven generation orchestration *(extra: `pipeline`)*.
 
-Call `evaluate_files` right after your own pipeline writes its generated
-cells.
+### Optional Dependencies
+
+The core install is the metric suite only. Everything heavier is an opt-in extra:
+
+```bash
+uv sync --extra classifier       # + the cell-type-classifier training stack (for the ct/* metrics)
+uv sync --extra pipeline         # + Hydra, for configuration-driven generation
+uv sync --extra nicheflow        # + the bundled NicheFlow generation adapter
+uv sync --extra wandb            # + Weights & Biases logging for classifier training
+```
+
+Extras compose (`uv sync --extra pipeline --extra nicheflow`). Running the bundled NicheFlow adapter
+additionally needs the `nicheflow` package, which is not on PyPI:
+`uv pip install -e ../nicheflow_mba`.
+
+## Quickstart
+
+Call `evaluate_files` right after your own pipeline writes its generated cells.
 
 ```python
 from paired_slides_eval import evaluate_files
@@ -46,9 +63,38 @@ print(metrics)            # {test/group/metric: value, ...}
 Same thing on the command line:
 
 ```bash
-python -m paired_slides_eval.evaluate \
+uv run python -m paired_slides_eval.evaluate \
   --target target.h5ad --generated generated.h5ad --ct_key class --n_pcs 50 --out results.csv
 ```
+
+Evaluate all applicable metrics (default), or a selected subset with `--groups`:
+
+```bash
+# ALL applicable metrics — geometry + distribution + C2ST + Moran need no classifier:
+uv run python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
+  --n_pcs 50 --out results.csv
+
+# a SELECTED subset only:
+uv run python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
+  --groups c2st moran
+
+# add the classifier groups (concordance + accuracy gap) — needs a TRAINED classifier (see Metrics):
+uv run python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
+  --ct_key class --n_pcs 50 --classifier Classifier_Spatial.ckpt --out results.csv
+```
+
+Groups whose inputs are missing are skipped automatically (a flat slide → skips regression; no
+`--classifier` → skips the `ct/*` groups) and reported on a `skipped:` line; anything reconstructed
+on the fly (e.g. classifier niches auto-built from a flat slide) is reported on a `notes:` line.
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--classifier` | none | trained classifier `.ckpt`; enables the `ct/*` groups. `n_neighbors` read from the checkpoint |
+| `--regressor` | none | trained expression-regressor `.ckpt`; enables the `recon` group |
+| `--groups` | all | subset, e.g. `--groups c2st moran` |
+| `--n_pcs` | none | fit a PCA on the target to N PCs and project the generated cells into it |
+| `--expr_key` / `--spatial_key` / `--ct_key` | `X`/`spatial`/none | where expression/coords/labels live |
+| `--seed` | `0` | |
 
 ## Inputs
 
@@ -92,82 +138,73 @@ generated = GeneratedSlide.from_anndata("generated.h5ad").project(target.pca)  #
 metrics = evaluate(target, generated)
 ```
 
-## Evaluate (all metrics, or a subset)
-
-```bash
-# ALL applicable metrics (default). Geometry + distribution + C2ST + Moran need no classifier:
-python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
-  --n_pcs 50 --out results.csv
-
-# a SELECTED subset only:
-python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
-  --groups c2st moran
-
-# add the classifier groups (concordance + accuracy gap) — needs a TRAINED classifier (see below):
-python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
-  --ct_key class --n_pcs 50 --classifier Classifier_Spatial.ckpt --out results.csv
-```
-
-Groups whose inputs are missing are skipped automatically (a flat slide → skips regression; no
-`--classifier` → skips the `ct/*` groups) and reported on a `skipped:` line; anything reconstructed
-on the fly (e.g. classifier niches auto-built from a flat slide) is reported on a `notes:` line.
-
-| Flag | Default | Purpose |
-|---|---|---|
-| `--classifier` | none | trained classifier `.ckpt`; enables the `ct/*` groups. `n_neighbors` read from the checkpoint |
-| `--groups` | all | subset, e.g. `--groups c2st moran` |
-| `--n_pcs` | none | fit a PCA on the target to N PCs and project the generated cells into it |
-| `--expr_key` / `--spatial_key` / `--ct_key` | `X`/`spatial`/none | where expression/coords/labels live |
-| `--seed` | `0` | |
-
 ## Metrics
 
 The **label-free** groups run on **either** a flat `GeneratedSlide` or `GeneratedNiches` and need no
 classifier — this is the default suite any model can use. The **classifier** groups (`ct/*`) are
 **advanced**: they need a trained cell-type classifier (see below). Only regression needs
-cell-for-cell matched ground truth and is therefore niche-only.
+cell-for-cell matched ground truth and is therefore niche-only. Metrics split conceptually along two
+axes — **expression / distribution fidelity** (the `x` variants: `mmd2/x`, `ot_w*/x`, gene-C2ST) and
+**spatial & joint fidelity** (Moran's I, joint C2ST, the `pos` variants, geometry, and the `ct/*`
+concordance groups).
 
 | Group | Keys | Shape | Needs |
 |---|---|---|---|
 | Point/shape distances | `psd/{mean,max}`, `spd/{mean,max}` | flat or niche | — |
 | Distribution | `mmd2/{x,pos}`, `ot_w1/{x,pos}`, `ot_w2/{x,pos}` | flat or niche | `torch`, `pot` |
-| C2ST (label-free) | `c2st/{acc,auc,pos_acc,sig_*}` | flat or niche | `sklearn` |
+| C2ST (label-free) | `c2st/{acc,auc,gene_acc,gene_auc,pos_acc}` | flat or niche | `sklearn` |
+| C2ST nearest-neighbor (label-free) | `c2st/{nn,nn_std,nn_flip,nn_real_ref}` | flat or niche | `scipy` |
 | Moran's I (label-free) | `moran/{mae,corr,real_mean,gen_mean}` | flat or niche | `squidpy` — over **all** generated cells vs the full real slide |
 | Pointwise regression | `x/{mse,mae}`, `pos/{mse,mae}` | niche only | matched `gt_*` |
+| Expression reconstruction | `recon/{mse_gen,mse_real,mse_gap}` | flat or niche | trained regressor (`--regressor`) |
 | Cell-type concordance *(advanced)* | `ct/{f1,acc,prop_kl,prop_tv,prop_jsd}` | flat or niche | trained classifier (+ paired niches `gt_*`, auto-built from a flat slide) |
 | Classifier accuracy gap *(advanced)* | `ct/{acc_real,acc_gen,acc_gap}` | flat or niche | trained classifier (+ `gt_*` and `gt_ct`; from `ct_key` for a flat slide) |
 
-See `docs/metric_comparison.md` and `docs/metrics.md` for details.
+Example metric tables and per-model write-ups live under `reports/` (e.g.
+`reports/model_comparison_shared50.csv`, `reports/otcfm1025_vs_nicheflow.md`).
 
 ### Advanced: the classifier (`ct/*`) metrics
 
 `concordance` and `ct_gap` compare a **trained spatial cell-type classifier**'s labels on the
 generated vs. the real microenvironments. There is no default classifier — train one (extra
-`[classifier]`) on a held-out slide, in the **same PCA basis** as the target you evaluate, then pass
-it with `--classifier <ckpt>`. Omit it and these two groups are simply skipped; the rest of the
-suite runs. The full training pipeline lives under `paired_slides_eval.classifier` (Hydra entry
-point `python -m paired_slides_eval.classifier.train`).
+`classifier`) on a held-out slide, in the **same PCA basis** as the target you evaluate, then pass it
+with `--classifier <ckpt>`. Omit it and these two groups are simply skipped; the rest of the suite
+runs. The full training pipeline lives under `paired_slides_eval.classifier` (Hydra entry point
+`uv run python -m paired_slides_eval.classifier.train`).
 
-## Optional: integrated generation
+## Models & adapters
+
+Any model can be evaluated with no adapter at all: write the cells it emits to a flat or
+niche-shaped file (see [Inputs](#inputs)) and point `evaluate_files` at it. Models that ship an
+adapter can additionally be *driven* by this library through the integrated-generation layer:
+
+- **NicheFlow** — microenvironment flow-matching model; CFM (regresses the conditional velocity) and
+  VFM (regresses the endpoint) variants. Adapter in `adapters/nicheflow/` *(extras: `pipeline`,
+  `nicheflow`, plus `../nicheflow_mba`)*.
+- **OT-CFM** — OT conditional flow matching (Tong et al.); a flat baseline (`otcfm`) and a
+  coordinate-generating spatial baseline (`otcfm_spatial`) that also produces positions.
+- **Bring your own** — any other model: emit a file in the expected shape and evaluate it directly.
+
+### Integrated generation
 
 Given a trained checkpoint and the model's code, the package can generate cells and evaluate them in
 one step. Generation is configuration-driven (Hydra): a generation **adapter** wraps a model behind
 the `BaseGenerator` contract, and a config selects and constructs it via `_target_`. This path
-requires the `[pipeline]` extra.
+requires the `pipeline` extra.
 
 Run generation, then evaluate:
 
 ```bash
-python -m paired_slides_eval.generate \
+uv run python -m paired_slides_eval.generate \
   generator=nicheflow \
   source=source.h5ad target=target.h5ad checkpoint=model.ckpt generated_out=generated.h5ad
-python -m paired_slides_eval.evaluate --target target.h5ad --generated generated.h5ad
+uv run python -m paired_slides_eval.evaluate --target target.h5ad --generated generated.h5ad
 ```
 
 Or generate and evaluate in one command:
 
 ```bash
-python -m paired_slides_eval.pipeline \
+uv run python -m paired_slides_eval.pipeline \
   generator=nicheflow \
   source=source.h5ad target=target.h5ad checkpoint=model.ckpt \
   classifier=classifier.ckpt out=results.csv
@@ -209,6 +246,34 @@ Per-run parameter overrides use Hydra syntax, e.g. `generator.n_pcs=50 generator
 
 For library use, a `BaseGenerator` instance (or any matching callable) is accepted directly:
 `run_pipeline("source.h5ad", "target.h5ad", "model.ckpt", generator=MyGenerator())`.
+
+## Resources
+
+- **`reports/`** — example metric tables and per-model evaluation write-ups
+  (`model_comparison_shared50.csv`, `model_comparison_1025.md`, `otcfm1025_vs_nicheflow.md`, …).
+- **`notebooks/evaluation.ipynb`** — an end-to-end generate → evaluate → visualize walkthrough.
+- **`configs/generator/`** — the shipped generator configs (`nicheflow`, `otcfm`, `otcfm_spatial`).
+- **Sibling projects** — `../nicheflow_mba` (the NicheFlow fork this adapter wraps) and `../fm_mnist`
+  (origin of the OT-CFM baseline and the shared `mmd2_rbf` / `ot_distance` metric kernels).
+
+## References
+
+The metric kernels and bundled adapters build on:
+
+- **NicheFlow** — Sakalyan, Palma, Guerranti, Theis. *Modeling Microenvironment Trajectories on
+  Spatial Transcriptomics with NicheFlow* (2025).
+- **OT-CFM** — Tong et al. *Improving and Generalizing Flow-Based Generative Models with Minibatch
+  Optimal Transport* (2024).
+- The `mmd2_rbf` (mixture-RBF MMD) and `ot_distance` (exact-EMD W1/W2) kernels originated in
+  `../fm_mnist` and are shared, in spirit, across the workspace.
+
+## Development
+
+- **Environment.** `uv sync --extra classifier --extra pipeline` (or the subset you need); each
+  subproject keeps its own `.venv` and lock file — don't `pip install` into a base environment.
+- **Lint & format.** `uv run ruff check .` and `uv run ruff format .` (line length 100).
+- **Tests.** `uv run pytest` — synthetic data only, no real data needed. The suite skips cleanly when
+  optional heavy deps (`torch`, `squidpy`, `lightning`, …) are absent; keep it that way.
 
 ## Layout
 
