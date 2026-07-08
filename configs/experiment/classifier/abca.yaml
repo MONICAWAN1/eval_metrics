@@ -7,17 +7,17 @@ defaults:
 
 logger:
   wandb:
-    name: "Classifier_ABCA"
+    name: Classifier_ABCA
 
 trainer:
   max_epochs: 500
   gradient_clip_val: 1.0
 
 model:
-  plot_callbacks: False
+  plot_callbacks: false
 
 callbacks:
   model_checkpoint:
-    monitor: "val/f1"
+    monitor: val/f1
   early_stopping:
-    monitor: "val/f1"
+    monitor: val/f1

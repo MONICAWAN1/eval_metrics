@@ -1,4 +1,5 @@
-"""Synthetic fixtures so the metric tests run without any real data / checkpoints."""
+"""Synthetic fixtures so the metric tests run without any real data /
+checkpoints."""
 
 import numpy as np
 import pytest
@@ -22,7 +23,8 @@ def real_slide(rng):
 
 @pytest.fixture
 def generated_niches(real_slide, rng):
-    """(B, N, D) generated niches drawn near the real slide (centroid at index 0)."""
+    """(B, N, D) generated niches drawn near the real slide (centroid at index
+    0)."""
     b, n_points = 60, 6
     n_pcs = real_slide["x"].shape[1]
     centroids = rng.uniform(1, 9, size=(b, 2))
@@ -64,7 +66,8 @@ def generated_slide_adata(target_adata, rng):
 
 @pytest.fixture
 def generated_adata(generated_niches, rng):
-    """A flat generated AnnData matching GeneratedNiches.from_anndata's layout."""
+    """A flat generated AnnData matching GeneratedNiches.from_anndata's
+    layout."""
     ad = pytest.importorskip("anndata")
     import pandas as pd
 

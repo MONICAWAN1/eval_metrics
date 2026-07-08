@@ -25,6 +25,8 @@ class ExceptionPrinter:
 def print_exceptions(f):
     """Print any exception raised by the annotated function to stderr.
 
-    Helpful when an outer function swallows exceptions, such as hydra's submitit launcher.
+    Helpful when an outer function swallows exceptions, such as hydra's submitit
+    launcher.
+
     """
     return ft.wraps(f)(ExceptionPrinter(f))

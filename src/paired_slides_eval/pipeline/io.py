@@ -4,6 +4,7 @@
 :class:`~paired_slides_eval.contract.GeneratedSlide` to ``.h5ad`` or ``.npz`` in the same layout the
 evaluator's loader reads (:func:`paired_slides_eval.loaders._load_generated`), so a generate step
 and a later evaluate step compose.
+
 """
 
 from __future__ import annotations
@@ -16,13 +17,15 @@ from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide
 
 
 def write_generated(generated: GeneratedNiches | GeneratedSlide, path: str) -> str:
-    """Write generated cells to ``path`` (``.h5ad`` or ``.npz``); returns ``path``.
+    """Write generated cells to ``path`` (``.h5ad`` or ``.npz``); returns
+    ``path``.
 
     ``.h5ad`` — niche-shaped cells become flat rows with ``obs['niche_id']`` grouping each niche
     (centroid first), coordinates in ``obsm['spatial']``, and any paired ground truth in
     ``obsm['gt_x']`` / ``obsm['gt_pos']`` / ``obs['gt_ct']``; a flat slide is ``X`` +
     ``obsm['spatial']``. ``.npz`` — niche-shaped: 3-D ``x`` / ``pos`` (+ optional ``gt_x`` /
     ``gt_pos`` / ``gt_ct``); flat: 2-D ``x`` / ``pos``.
+
     """
     path = str(path)
     # Create parent dirs so nested default output paths (e.g. artifacts/<model>/...) work.

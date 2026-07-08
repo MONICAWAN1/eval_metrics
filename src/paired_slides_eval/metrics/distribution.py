@@ -26,6 +26,7 @@ def mmd2_rbf(
     heuristic by default), and form MMD^2 from the XX / YY / XY blocks. Pairing-free. Unbiased
     U-statistic by default (the value can dip slightly negative when distributions match; that
     is expected, do not clip). Both sets are subsampled to ``max_n`` rows (seeded).
+
     """
     import torch
 
@@ -75,11 +76,13 @@ def ot_distance(
     max_n: int = 4000,
     seed: int = 0,
 ) -> float:
-    """Wasserstein-`power` (EMD) distance between two sample sets (Euclidean cost).
+    """Wasserstein-`power` (EMD) distance between two sample sets (Euclidean
+    cost).
 
     Uniform marginals, cost M = ||x_i - y_j|| (squared when power==2), solved with POT's exact
     EMD (``emd2``) or entropic Sinkhorn. For power==2 the sqrt is taken, so the return is the
     true W2 distance (not W2^2). Sets are subsampled to ``max_n`` rows (seeded).
+
     """
     import ot as pot
     import torch
@@ -124,11 +127,13 @@ def distribution_distance(
     ot_max_n: int = 4000,
     seed: int = 0,
 ) -> dict[str, float]:
-    """MMD^2 and Wasserstein-1/2 of generated vs. real, scored separately for ``x`` and ``pos``.
+    """MMD^2 and Wasserstein-1/2 of generated vs. real, scored separately for
+    ``x`` and ``pos``.
 
     Inputs are flat clouds: ``real_*`` are all real target cells, ``gen_*`` are all generated
     cells (flatten the ``(B, N, D)`` niches first). The real sample is passed first so it acts
     as the reference where the ground cost / kernel is symmetric anyway.
+
     """
     p = f"{prefix}/" if prefix else ""
     return {

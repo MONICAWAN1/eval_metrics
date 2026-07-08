@@ -29,13 +29,15 @@ from paired_slides_eval.evaluate import ALL_GROUPS, evaluate
 
 @dataclass
 class GenerationOutput:
-    """What a :class:`Generator` returns: a ready-to-evaluate (target, generated) pair.
+    """What a :class:`Generator` returns: a ready-to-evaluate (target,
+    generated) pair.
 
     The generator owns the one genuinely model-specific job — making the real target and the
     generated cells live in the **same feature space** (see :func:`from_generated_anndata` for the
     common gene-space recipe). Optionally it can also hand back a trained ``classifier`` for the
     ``ct/*`` metric groups; if it does not, pass a checkpoint/object via ``run_pipeline(...,
     classifier=...)`` instead.
+
     """
 
     target: TargetSlide
@@ -55,6 +57,7 @@ class Generator(Protocol):
     where ``source`` / ``target`` are raw AnnData slides (or paths to ``.h5ad``) and ``checkpoint``
     is your trained model. Return a :class:`GenerationOutput`; the easiest way is to generate cells
     into an AnnData (gene space) and call :func:`from_generated_anndata`.
+
     """
 
     def __call__(self, *, source, target, checkpoint: str, **kwargs) -> GenerationOutput: ...
@@ -77,7 +80,8 @@ def from_generated_anndata(
     target_kwargs: dict | None = None,
     generated_kwargs: dict | None = None,
 ) -> GenerationOutput:
-    """Build a :class:`GenerationOutput` from a generated ``.h5ad`` and the raw target slide.
+    """Build a :class:`GenerationOutput` from a generated ``.h5ad`` and the raw
+    target slide.
 
     The common path for a bring-your-own-model generator: your model writes generated cells as an
     AnnData in **gene space** (same genes as the target). This fits one PCA on the target and
@@ -96,14 +100,22 @@ def from_generated_anndata(
         n_pcs: PCs to fit on the target and project both sides into (``None`` keeps raw genes).
         niche_key: ``obs`` column marking the niche layout (default ``"niche_id"``).
         target_kwargs / generated_kwargs: extra kwargs forwarded to the respective ``from_anndata``.
+
     """
     from paired_slides_eval.data.anndata import read_anndata
 
-    target = _resolve_target(target_adata_or_path, ct_key=ct_key, n_pcs=n_pcs, **(target_kwargs or {}))
+    target = _resolve_target(
+        target_adata_or_path,
+        ct_key=ct_key,
+        n_pcs=n_pcs,
+        **(target_kwargs or {}),
+    )
     gen_adata = read_anndata(generated_adata_or_path)
     if niche_key in gen_adata.obs:
         generated = GeneratedNiches.from_anndata(
-            gen_adata, niche_key=niche_key, **(generated_kwargs or {})
+            gen_adata,
+            niche_key=niche_key,
+            **(generated_kwargs or {}),
         )
     else:
         generated = GeneratedSlide.from_anndata(gen_adata, **(generated_kwargs or {}))
@@ -111,7 +123,8 @@ def from_generated_anndata(
 
 
 def _resolve_target(target, *, ct_key=None, n_pcs=50, **target_kwargs) -> TargetSlide:
-    """Accept a ready :class:`TargetSlide` as-is, or build one from an AnnData / ``.h5ad`` path."""
+    """Accept a ready :class:`TargetSlide` as-is, or build one from an AnnData /
+    ``.h5ad`` path."""
     if isinstance(target, TargetSlide):
         return target
     return TargetSlide.from_anndata(target, ct_key=ct_key, n_pcs=n_pcs, **target_kwargs)
@@ -129,7 +142,8 @@ def from_generated_arrays(
     n_pcs: int | None = 50,
     target_kwargs: dict | None = None,
 ) -> GenerationOutput:
-    """Build a :class:`GenerationOutput` from in-memory generated arrays + a target.
+    """Build a :class:`GenerationOutput` from in-memory generated arrays + a
+    target.
 
     The array counterpart of :func:`from_generated_anndata`, for generators that return cells
     directly (no intermediate ``.h5ad``). Niche-shaped if ``x`` is 3-D ``(B, N, D)`` (optionally
@@ -147,6 +161,7 @@ def from_generated_arrays(
         target: a ready :class:`TargetSlide`, or an AnnData / ``.h5ad`` path to build one from.
         gt_x / gt_pos / gt_ct: optional paired ground truth (niche-shaped only).
         ct_key / n_pcs / target_kwargs: used only when building the target from AnnData.
+
     """
     import numpy as np
 
@@ -171,7 +186,8 @@ def run_pipeline(
     evaluate_kwargs: dict | None = None,
     **generator_kwargs,
 ) -> PipelineResult:
-    """Generate with ``generator`` and run the metric suite. Returns a :class:`PipelineResult`.
+    """Generate with ``generator`` and run the metric suite. Returns a
+    :class:`PipelineResult`.
 
     Args:
         source / target: raw slides (AnnData or ``.h5ad`` paths), passed straight to ``generator``.
@@ -186,6 +202,7 @@ def run_pipeline(
             ``ct_real_reference="fixed"`` for cross-model-comparable ``ct/acc_real``). Kept separate
             from ``generator_kwargs`` so eval-only options do not leak into the generator call.
         **generator_kwargs: any extra options the ``generator`` accepts at call time.
+
     """
     out = generator(source=source, target=target, checkpoint=checkpoint, **generator_kwargs)
 
@@ -194,18 +211,24 @@ def run_pipeline(
         clf = _resolve_classifier_arg(classifier, out.target)
 
     metrics = evaluate(
-        out.target, out.generated, classifier=clf, groups=groups, seed=seed,
+        out.target,
+        out.generated,
+        classifier=clf,
+        groups=groups,
+        seed=seed,
         **(evaluate_kwargs or {}),
     )
     return PipelineResult(metrics=metrics, target=out.target, generated=out.generated)
 
 
 def generate_cells(source, target, checkpoint, *, generator, out=None, **generator_kwargs):
-    """Run ``generator`` to produce cells and, if ``out`` is given, write them to disk.
+    """Run ``generator`` to produce cells and, if ``out`` is given, write them
+    to disk.
 
     The generate-only counterpart of :func:`run_pipeline` (no evaluation). ``generator`` is a
     :class:`Generator` callable / :class:`BaseGenerator` instance. Returns the full
     :class:`GenerationOutput`; only the generated cells are written.
+
     """
     output = generator(source=source, target=target, checkpoint=checkpoint, **generator_kwargs)
     if out is not None:
@@ -216,7 +239,8 @@ def generate_cells(source, target, checkpoint, *, generator, out=None, **generat
 
 
 def _resolve_classifier_arg(classifier, target: TargetSlide):
-    """Accept a ready classifier module as-is, or load one from a ``.ckpt`` path."""
+    """Accept a ready classifier module as-is, or load one from a ``.ckpt``
+    path."""
     if isinstance(classifier, str):
         from paired_slides_eval.probes import build_spatial_classifier
 

@@ -15,6 +15,7 @@ We report, per niche:
 
 Needs a trained classifier and the **paired real target niches** (``GeneratedNiches.gt_x/gt_pos``)
 — not the target's own annotations. See ``paired_slides_eval.classifier`` for training one.
+
 """
 
 from __future__ import annotations
@@ -38,13 +39,15 @@ _DEFAULT_N_NEIGHBORS = 10
 
 
 def _resolve_n_neighbors(n_neighbors: int | None, classifier) -> int:
-    """Pick the microenvironment size for the spatial classifier, matching training.
+    """Pick the microenvironment size for the spatial classifier, matching
+    training.
 
     Priority: an explicit ``n_neighbors`` overrides; otherwise use the value the classifier
     recorded at training time (attached by
     :func:`~paired_slides_eval.metrics._common.load_spatial_classifier`); otherwise fall back to
     :data:`_DEFAULT_N_NEIGHBORS` and warn, since a mismatch feeds the net a different-sized niche
     than it trained on.
+
     """
     if n_neighbors is not None:
         return int(n_neighbors)
@@ -73,7 +76,8 @@ def cell_type_concordance(
     n_neighbors: int | None = None,
     n_classes: int | None = None,
 ) -> dict[str, float]:
-    """Label generated and paired-real niches with a neutral classifier and compare.
+    """Label generated and paired-real niches with a neutral classifier and
+    compare.
 
     Args:
         gen_x / gen_pos: generated microenvironments ``(B, N, n_pcs)`` / ``(B, N, coord)``,
@@ -87,6 +91,7 @@ def cell_type_concordance(
             classifier at training time (set by ``load_spatial_classifier``), so eval matches
             training; falls back to 10 with a warning if neither is available.
         n_classes: number of cell types; inferred from ``classifier.output_dim`` if not given.
+
     """
     import torch
 

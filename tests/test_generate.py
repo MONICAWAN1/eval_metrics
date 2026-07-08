@@ -14,8 +14,11 @@ from paired_slides_eval.pipeline.run import GenerationOutput
 def _niche_generator(*, source, target, checkpoint, **kw):
     rng = np.random.default_rng(0)
     g = GeneratedNiches(
-        x=rng.random((4, 6, 5)), pos=rng.random((4, 6, 2)),
-        gt_x=rng.random((4, 6, 5)), gt_pos=rng.random((4, 6, 2)), gt_ct=np.arange(4),
+        x=rng.random((4, 6, 5)),
+        pos=rng.random((4, 6, 2)),
+        gt_x=rng.random((4, 6, 5)),
+        gt_pos=rng.random((4, 6, 2)),
+        gt_ct=np.arange(4),
     )
     return GenerationOutput(target=None, generated=g)
 
@@ -23,7 +26,8 @@ def _niche_generator(*, source, target, checkpoint, **kw):
 def _slide_generator(*, source, target, checkpoint, **kw):
     rng = np.random.default_rng(1)
     return GenerationOutput(
-        target=None, generated=GeneratedSlide(x=rng.random((10, 5)), pos=rng.random((10, 2)))
+        target=None,
+        generated=GeneratedSlide(x=rng.random((10, 5)), pos=rng.random((10, 2))),
     )
 
 
@@ -39,16 +43,24 @@ class _SlideGenerator(BaseGenerator):
         return GenerationOutput(
             target=None,
             generated=GeneratedSlide(
-                x=rng.random((self.n_cells, self.n_feat)), pos=rng.random((self.n_cells, 2))
+                x=rng.random((self.n_cells, self.n_feat)),
+                pos=rng.random((self.n_cells, 2)),
             ),
         )
 
 
 # --- write_generated round-trips through the eval loader ---------------------
 
+
 @pytest.mark.parametrize("ext", [".h5ad", ".npz"])
 def test_niche_round_trip(tmp_path, ext):
-    out = generate_cells("s", "t", "ckpt", generator=_niche_generator, out=str(tmp_path / f"g{ext}"))
+    out = generate_cells(
+        "s",
+        "t",
+        "ckpt",
+        generator=_niche_generator,
+        out=str(tmp_path / f"g{ext}"),
+    )
     back = _load_generated(str(tmp_path / f"g{ext}"))
     assert isinstance(back, GeneratedNiches)
     assert back.x.shape == (4, 6, 5) and back.gt_x.shape == (4, 6, 5)
@@ -70,6 +82,7 @@ def test_unsupported_extension_raises(tmp_path):
 
 
 # --- generate_cells / run_pipeline accept a callable or a BaseGenerator instance ---
+
 
 def test_generate_cells_out_none_writes_nothing(tmp_path):
     res = generate_cells("s", "t", "ckpt", generator=_slide_generator, out=None)
@@ -101,10 +114,16 @@ def test_run_pipeline_accepts_generator_instance(real_slide):
     class _G(BaseGenerator):
         def __call__(self, *, source, target, checkpoint, **kw):
             rng = np.random.default_rng(3)
-            tgt = TargetSlide(x=real_slide["x"], pos=real_slide["pos"],
-                              ct=real_slide["ct"], n_classes=real_slide["n_classes"])
-            gen = GeneratedSlide(x=rng.random((40, real_slide["x"].shape[1])),
-                                 pos=rng.uniform(0, 10, size=(40, 2)))
+            tgt = TargetSlide(
+                x=real_slide["x"],
+                pos=real_slide["pos"],
+                ct=real_slide["ct"],
+                n_classes=real_slide["n_classes"],
+            )
+            gen = GeneratedSlide(
+                x=rng.random((40, real_slide["x"].shape[1])),
+                pos=rng.uniform(0, 10, size=(40, 2)),
+            )
             return GenerationOutput(target=tgt, generated=gen)
 
     res = run_pipeline("s", "t", "ckpt", generator=_G(), groups=("regression",))

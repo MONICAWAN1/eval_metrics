@@ -12,6 +12,7 @@ score is the mean over niches:
 
 A continuous statistic (not a hard majority vote) is reported with its spread, so a mean near 0.5
 from genuine mixing is distinguishable from one produced by a bimodal, regionally-separable slide.
+
 """
 
 from __future__ import annotations
@@ -33,11 +34,13 @@ def c2st_nn(
     z_score: bool = True,
     seed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return per-niche real-fractions ``(p_real_gen, p_real_real)`` for generated and real centroids.
+    """Return per-niche real-fractions ``(p_real_gen, p_real_real)`` for
+    generated and real centroids.
 
     Real and generated are subsampled to equal counts so the chance level is 0.5. For every cell, the
     nearest neighbour in the joint expression pool (excluding itself) is looked up; a niche's value is
     the fraction of its ``spatial_k`` nearest spatial neighbours whose such NN is a real cell.
+
     """
     rng = np.random.default_rng(seed)
     real_x = np.asarray(real_x, dtype=np.float64)
@@ -94,10 +97,17 @@ def c2st_nn_metrics(
     memorisation), ``c2st/nn_std`` (its spread, to expose a bimodal split-slide), and
     ``c2st/nn_real_ref`` (the same statistic on real centroids, a self-calibration that should also
     be ~0.5 for a balanced pool).
+
     """
     p = f"{prefix}/" if prefix else ""
     p_gen, p_real = c2st_nn(
-        real_x, real_pos, gen_x, gen_pos, spatial_k=spatial_k, max_n=max_n, seed=seed
+        real_x,
+        real_pos,
+        gen_x,
+        gen_pos,
+        spatial_k=spatial_k,
+        max_n=max_n,
+        seed=seed,
     )
     return {
         f"{p}c2st/nn": float(p_gen.mean()),

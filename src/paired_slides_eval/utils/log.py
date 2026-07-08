@@ -16,7 +16,8 @@ def setup_logging() -> None:
 
 
 class RankedLogger(logging.LoggerAdapter):
-    """A multi-GPU-friendly Python logger that prefixes log messages with the process rank."""
+    """A multi-GPU-friendly Python logger that prefixes log messages with the
+    process rank."""
 
     def __init__(
         self,
@@ -57,7 +58,8 @@ _logger = RankedLogger(__name__, rank_zero_only=True)
 
 @rank_zero_only
 def log_hyperparameters(object_dict: dict[str, Any]) -> None:
-    """Log selected hyperparameters and model stats to Lightning loggers (rank-zero only)."""
+    """Log selected hyperparameters and model stats to Lightning loggers (rank-
+    zero only)."""
     hparams = {}
 
     cfg = OmegaConf.to_container(object_dict["cfg"])

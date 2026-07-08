@@ -7,7 +7,7 @@ defaults:
 
 logger:
   wandb:
-    name: "ExprRegressor_Spatial_ABCA"
+    name: ExprRegressor_Spatial_ABCA
 
 trainer:
   max_epochs: 500
@@ -15,8 +15,8 @@ trainer:
 
 callbacks:
   model_checkpoint:
-    monitor: "val/mse"
-    mode: "min"
+    monitor: val/mse
+    mode: min
   early_stopping:
-    monitor: "val/mse"
-    mode: "min"
+    monitor: val/mse
+    mode: min

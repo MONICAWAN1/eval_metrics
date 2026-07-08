@@ -3,6 +3,7 @@
 These were duplicated three ways in the source repo (in ``flow_matching.py``,
 ``metric_sensitivity_test.py``, and ``diagnose_gcn_collapse.py``); here they live once. Every
 function operates on plain NumPy arrays so the metrics stay framework-light.
+
 """
 
 from __future__ import annotations
@@ -13,11 +14,13 @@ from scipy.spatial import cKDTree
 
 
 def nn_query(query: np.ndarray, ref: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """For each row of ``query`` find its nearest neighbour in ``ref`` (Euclidean).
+    """For each row of ``query`` find its nearest neighbour in ``ref``
+    (Euclidean).
 
     Returns ``(indices, distances)``, each shape ``(len(query),)``. Uses a KD-tree, so this is
     exact and scales to large clouds (the source used chunked ``torch.cdist``; the nearest
     neighbour is identical).
+
     """
     tree = cKDTree(np.asarray(ref, dtype=np.float64))
     dist, idx = tree.query(np.asarray(query, dtype=np.float64), k=1)
@@ -25,11 +28,12 @@ def nn_query(query: np.ndarray, ref: np.ndarray) -> tuple[np.ndarray, np.ndarray
 
 
 def knn_indices(coords: np.ndarray, k: int, *, centroids: np.ndarray | None = None) -> np.ndarray:
-    """``(B, k+1)`` KNN index array: each centroid's self (distance 0) at column 0, then its ``k``
-    nearest neighbours by Euclidean distance on ``coords``.
+    """``(B, k+1)`` KNN index array: each centroid's self (distance 0) at column
+    0, then its ``k`` nearest neighbours by Euclidean distance on ``coords``.
 
     ``k`` is the number of **neighbours** (so the niche has ``k + 1`` points); it is clamped to the
     available neighbours (``len(coords) - 1``). ``centroids`` selects the query cells (default: all).
+
     """
     coords = np.asarray(coords, dtype=np.float64)
     n = len(coords)
@@ -41,15 +45,21 @@ def knn_indices(coords: np.ndarray, k: int, *, centroids: np.ndarray | None = No
 
 
 def build_knn_point_set(
-    coords: np.ndarray, expr: np.ndarray, k: int, *, centroids: np.ndarray | None = None
+    coords: np.ndarray,
+    expr: np.ndarray,
+    k: int,
+    *,
+    centroids: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Expression-only KNN microenvironments ``(B, k+1, n_feat)``, the centroid at index 0.
+    """Expression-only KNN microenvironments ``(B, k+1, n_feat)``, the centroid
+    at index 0.
 
     Each centroid + its ``k`` nearest neighbours (by ``coords``), gathering only the **expression**
     rows from ``expr`` — coordinates pick membership, then are dropped (the classifier is
     coordinate-blind). The single KNN-niche builder shared by the training dataset
     (:class:`~paired_slides_eval.classifier.dataset.SpatialH5ADCTDataset`) and the eval-time
     reconstruction (:func:`build_paired_niches_from_flat`).
+
     """
     idx = knn_indices(coords, k, centroids=centroids)
     return np.asarray(expr)[idx]
@@ -66,6 +76,7 @@ def build_microenv_points(x: np.ndarray, pos: np.ndarray, k: int | None) -> np.n
     Unlike :func:`build_knn_point_set` (which builds niches from a flat cloud), this sub-selects from
     an already-grouped microenvironment — e.g. NicheFlow's generation niches, which carry more points
     than the classifier's ``k``.
+
     """
     x = np.asarray(x)
     if k is not None and pos.shape[1] > k + 1:
@@ -85,7 +96,8 @@ def build_paired_niches_from_flat(
     real_ct: np.ndarray | None = None,
     centroid_indices: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
-    """Assemble paired microenvironments from a **flat** generated slide via geometry.
+    """Assemble paired microenvironments from a **flat** generated slide via
+    geometry.
 
     A whole-slide model emits cells with no niche structure, so the niche/classifier metrics have
     no ``(B, N, D)`` microenvironments to compare. This rebuilds them the same way the classifier
@@ -115,6 +127,7 @@ def build_paired_niches_from_flat(
         ``(gen_niche_x, gen_niche_pos, gt_x, gt_pos, gt_ct)`` — the first four ``(B, k+1, D)`` with
         the centroid at point 0; ``gt_ct`` is ``(B,)`` or ``None`` when ``real_ct`` is absent. The
         ``*_pos`` are kept only for a downstream sub-KNN; the classifier reads expression only.
+
     """
     gen_x = np.asarray(gen_x)
     gen_pos = np.asarray(gen_pos)
@@ -153,7 +166,8 @@ def build_paired_niches_from_flat_fixed_centroids(
     target_centroid_indices: np.ndarray,
     real_ct: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
-    """Assemble paired niches for a flat slide using fixed target centroids plus OT assignment.
+    """Assemble paired niches for a flat slide using fixed target centroids plus
+    OT assignment.
 
     This is the cross-model-comparable flat-slide path. NicheFlow already generates at the
     preprocessed target grid centroids (``subsampled_timepoint_idx``), so its ``gt_*`` pairing is
@@ -173,6 +187,7 @@ def build_paired_niches_from_flat_fixed_centroids(
 
     Returns:
         ``(gen_niche_x, gen_niche_pos, gt_x, gt_pos, gt_ct)`` in target-centroid order.
+
     """
     gen_x = np.asarray(gen_x)
     gen_pos = np.asarray(gen_pos)
@@ -189,7 +204,7 @@ def build_paired_niches_from_flat_fixed_centroids(
     if len(gen_pos) < len(target_centroids):
         raise ValueError(
             "OT pairing needs at least as many generated cells as fixed target centroids "
-            f"({len(gen_pos)} generated < {len(target_centroids)} target centroids)."
+            f"({len(gen_pos)} generated < {len(target_centroids)} target centroids).",
         )
 
     target_pos = real_pos[target_centroids].astype(np.float64)
@@ -211,7 +226,8 @@ def build_paired_niches_from_flat_fixed_centroids(
 
 
 def weighted_pearson(a: np.ndarray, b: np.ndarray, w: np.ndarray) -> float:
-    """Weighted Pearson correlation between vectors ``a`` and ``b`` with weights ``w``."""
+    """Weighted Pearson correlation between vectors ``a`` and ``b`` with weights
+    ``w``."""
     w = w / w.sum()
     ma, mb = float((w * a).sum()), float((w * b).sum())
     cov = float((w * (a - ma) * (b - mb)).sum())
@@ -221,7 +237,8 @@ def weighted_pearson(a: np.ndarray, b: np.ndarray, w: np.ndarray) -> float:
 
 
 def proportions(labels: np.ndarray, n_classes: int) -> np.ndarray:
-    """Class-proportion histogram over ``n_classes`` integer labels (sums to 1)."""
+    """Class-proportion histogram over ``n_classes`` integer labels (sums to
+    1)."""
     counts = np.bincount(np.asarray(labels, dtype=np.int64), minlength=n_classes).astype(np.float64)
     total = counts.sum()
     return counts / total if total > 0 else counts
@@ -233,42 +250,48 @@ def kl_divergence(p_real: np.ndarray, p_gen: np.ndarray, eps: float = 1e-8) -> f
 
 
 def total_variation(p_real: np.ndarray, p_gen: np.ndarray) -> float:
-    """Total-variation distance between two proportion histograms (bounded [0, 1])."""
+    """Total-variation distance between two proportion histograms (bounded [0,
+    1])."""
     return float(0.5 * np.abs(p_real - p_gen).sum())
 
 
 def jensen_shannon(p_real: np.ndarray, p_gen: np.ndarray, eps: float = 1e-8) -> float:
-    """Jensen-Shannon divergence between two proportion histograms (symmetric, bounded)."""
+    """Jensen-Shannon divergence between two proportion histograms (symmetric,
+    bounded)."""
     m = 0.5 * (p_real + p_gen)
     return float(
         0.5 * (p_real * (np.log(p_real + eps) - np.log(m + eps))).sum()
-        + 0.5 * (p_gen * (np.log(p_gen + eps) - np.log(m + eps))).sum()
+        + 0.5 * (p_gen * (np.log(p_gen + eps) - np.log(m + eps))).sum(),
     )
 
 
 def subsample(arr: np.ndarray, max_n: int, rng: np.random.Generator) -> np.ndarray:
-    """Randomly subsample rows of ``arr`` to at most ``max_n`` (seeded via ``rng``)."""
+    """Randomly subsample rows of ``arr`` to at most ``max_n`` (seeded via
+    ``rng``)."""
     if len(arr) > max_n:
         return arr[rng.choice(len(arr), max_n, replace=False)]
     return arr
 
 
 def strip_module_prefix(state_dict: dict, prefix: str = "net.") -> dict:
-    """Strip a leading ``prefix`` (e.g. ``net.``) from Lightning checkpoint state-dict keys.
+    """Strip a leading ``prefix`` (e.g. ``net.``) from Lightning checkpoint
+    state-dict keys.
 
     This package's spatial classifier wraps the net as ``self.net`` inside the LightningModule, so
     the saved keys are ``net.<...>``. This returns only those keys, de-prefixed, ready for
     ``net.load_state_dict``.
+
     """
     out = {}
     for key, value in state_dict.items():
         if key.startswith(prefix):
-            out[key[len(prefix):]] = value
+            out[key[len(prefix) :]] = value
     return out
 
 
 def load_spatial_classifier(net, checkpoint: dict, prefix: str = "net."):
-    """Load a spatial cell-type classifier from a Lightning ``checkpoint`` dict into ``net``.
+    """Load a spatial cell-type classifier from a Lightning ``checkpoint`` dict
+    into ``net``.
 
     Loads the (de-prefixed) weights and attaches ``net.n_neighbors`` — the *effective*
     microenvironment size the classifier was trained on, which the training task
@@ -280,6 +303,7 @@ def load_spatial_classifier(net, checkpoint: dict, prefix: str = "net."):
 
     ``checkpoint`` is an already-loaded checkpoint dict, e.g. ``torch.load(path, map_location=...)``.
     Returns ``net`` for convenience.
+
     """
     state_dict = checkpoint.get("state_dict", checkpoint)
     net.load_state_dict(strip_module_prefix(state_dict, prefix))

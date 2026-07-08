@@ -1,4 +1,5 @@
-"""Generate cells from a trained NicheFlow checkpoint — ``nicheflow`` used as a blackbox.
+"""Generate cells from a trained NicheFlow checkpoint — ``nicheflow`` used as a
+blackbox.
 
 This is the only place that imports the flow model. Given a preprocessed source+target dataclass
 (from :func:`paired_slides_eval.adapters.nicheflow.preprocess.preprocess_pair`) and a checkpoint,
@@ -10,6 +11,7 @@ model trained in), so they are directly comparable to the ``TargetSlide`` the ad
 the **same** dataclass (see ``paired_slides_eval.adapters.nicheflow.target_from_dataclass``).
 
 Requires the ``nicheflow`` package (the ``[pipeline]`` extra).
+
 """
 
 from __future__ import annotations
@@ -26,7 +28,8 @@ from paired_slides_eval.contract import GeneratedNiches
 
 @dataclass
 class GenerationResult:
-    """The generated niches plus the paired real ground truth, all as numpy ``(B, N, D)`` arrays."""
+    """The generated niches plus the paired real ground truth, all as numpy
+    ``(B, N, D)`` arrays."""
 
     x: np.ndarray  # (B, N, pca_dim) generated expression (standardized X_pca space)
     pos: np.ndarray  # (B, N, coord_dim) generated coordinates
@@ -36,15 +39,21 @@ class GenerationResult:
 
     def to_generated_niches(self) -> GeneratedNiches:
         return GeneratedNiches(
-            x=self.x, pos=self.pos, gt_x=self.gt_x, gt_pos=self.gt_pos, gt_ct=self.gt_ct,
+            x=self.x,
+            pos=self.pos,
+            gt_x=self.gt_x,
+            gt_pos=self.gt_pos,
+            gt_ct=self.gt_ct,
         )
 
     def to_anndata(self):
-        """Flatten the generated cells into an ``AnnData`` (one row per cell, niche id in obs).
+        """Flatten the generated cells into an ``AnnData`` (one row per cell,
+        niche id in obs).
 
         Layout matches :meth:`GeneratedNiches.from_anndata`: ``obs['niche_id']`` groups each
         niche's points (centroid first), ``obsm['spatial']`` the coords, and the paired real
         niches in ``obsm['gt_x']`` / ``obsm['gt_pos']`` with ``obs['gt_ct']`` the centroid label.
+
         """
         import anndata as ad
         import pandas as pd
@@ -63,7 +72,8 @@ class GenerationResult:
 
 
 def _to_nicheflow_dataclass(ds):
-    """Re-wrap our standalone dataclass into ``nicheflow``'s so its dataset consumes it cleanly."""
+    """Re-wrap our standalone dataclass into ``nicheflow``'s so its dataset
+    consumes it cleanly."""
     from dataclasses import fields
 
     from nicheflow.preprocessing import H5ADDatasetDataclass as NFDataclass
@@ -76,12 +86,16 @@ def _to_nicheflow_dataclass(ds):
 
 
 def _build_flow(pca_dim, coord_dim, ohe_dim, *, num_steps, solver, variant, vfm_objective="GLVFM"):
-    """Construct a ``PointCloudFlow`` matching the trained backbone (defaults match the configs)."""
+    """Construct a ``PointCloudFlow`` matching the trained backbone (defaults
+    match the configs)."""
     from nicheflow.models.backbones.pc_transformer import PointCloudTransformer
     from nicheflow.models.flows import CFM, VFM, PointCloudFlow
 
     backbone = PointCloudTransformer(
-        pca_dim=pca_dim, ohe_dim=ohe_dim, coord_dim=coord_dim, output_dim=pca_dim + coord_dim
+        pca_dim=pca_dim,
+        ohe_dim=ohe_dim,
+        coord_dim=coord_dim,
+        output_dim=pca_dim + coord_dim,
     )
     if variant == "cfm":
         var = CFM(lambda_features=1.0, lambda_pos=1.0)
@@ -94,7 +108,8 @@ def _build_flow(pca_dim, coord_dim, ohe_dim, *, num_steps, solver, variant, vfm_
 
 
 def _load_backbone(flow, checkpoint: str, device: str) -> None:
-    """Load trained weights into ``flow.backbone`` — handles bare state_dict or Lightning ckpt."""
+    """Load trained weights into ``flow.backbone`` — handles bare state_dict or
+    Lightning ckpt."""
     import torch
 
     ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
@@ -106,10 +121,10 @@ def _load_backbone(flow, checkpoint: str, device: str) -> None:
         pass
     # Lightning checkpoint: keys are prefixed (e.g. ``flow.backbone.<...>``).
     prefix = "flow.backbone."
-    stripped = {k[len(prefix):]: v for k, v in state.items() if k.startswith(prefix)}
+    stripped = {k[len(prefix) :]: v for k, v in state.items() if k.startswith(prefix)}
     if not stripped:
         prefix = "backbone."
-        stripped = {k[len(prefix):]: v for k, v in state.items() if k.startswith(prefix)}
+        stripped = {k[len(prefix) :]: v for k, v in state.items() if k.startswith(prefix)}
     flow.backbone.load_state_dict(stripped)
 
 
@@ -125,7 +140,8 @@ def generate(
     vfm_objective: str = "GLVFM",
     device: str = "cpu",
 ) -> GenerationResult:
-    """Run the flow on the target slide of ``ds`` and return the generated niches + paired GT.
+    """Run the flow on the target slide of ``ds`` and return the generated
+    niches + paired GT.
 
     Args:
         ds: a preprocessed source+target ``H5ADDatasetDataclass`` (from ``preprocess_pair``).
@@ -135,6 +151,7 @@ def generate(
             ``ds``). Must match the checkpoint's ``ohe_dim``.
         num_steps / solver / variant: sampler settings (defaults match the NicheFlow MBA config).
         device: torch device for the model + sampling.
+
     """
     import torch
     from nicheflow.datasets.microenv_dataset import TestMicroEnvDataset
@@ -153,7 +170,12 @@ def generate(
             pickle.dump(_to_nicheflow_dataclass(ds), fh, protocol=pickle.HIGHEST_PROTOCOL)
 
         flow = _build_flow(
-            pca_dim, coord_dim, ohe_dim, num_steps=num_steps, solver=solver, variant=variant,
+            pca_dim,
+            coord_dim,
+            ohe_dim,
+            num_steps=num_steps,
+            solver=solver,
+            variant=variant,
             vfm_objective=vfm_objective,
         )
         _load_backbone(flow, checkpoint, device)
@@ -161,7 +183,10 @@ def generate(
 
         test_ds = TestMicroEnvDataset(data_fp=str(pkl_path), upsample_factor=1)
         loader = DataLoader(
-            test_ds, batch_size=1, shuffle=False, collate_fn=microenv_val_collate
+            test_ds,
+            batch_size=1,
+            shuffle=False,
+            collate_fn=microenv_val_collate,
         )
 
         xs, poss, gt_xs, gt_poss = [], [], [], []

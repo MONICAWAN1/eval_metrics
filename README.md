@@ -127,11 +127,11 @@ slide into it, and `basis.to_fm_npz(path)` exports it so a model can be trained 
 
 **Target slide** — a plain AnnData (`.h5ad`):
 
-| Field | Where | Notes |
-|---|---|---|
-| expression | `adata.X` | **raw genes** (default). Or an `obsm`/`layers` key via `expr_key=` if already reduced. |
-| coordinates | `adata.obsm["spatial"]` | configurable via `spatial_key=` |
-| cell types | `adata.obs[ct_key]` | optional; needed by the classifier metrics |
+| Field       | Where                   | Notes                                                                                  |
+| ----------- | ----------------------- | -------------------------------------------------------------------------------------- |
+| expression  | `adata.X`               | **raw genes** (default). Or an `obsm`/`layers` key via `expr_key=` if already reduced. |
+| coordinates | `adata.obsm["spatial"]` | configurable via `spatial_key=`                                                        |
+| cell types  | `adata.obs[ct_key]`     | optional; needed by the classifier metrics                                             |
 
 **Generated cells** — write whatever your model emits to a file, in one of two shapes:
 
@@ -175,16 +175,16 @@ axes — **expression / distribution fidelity** (the `x` variants: `mmd2/x`, `ot
 **spatial & joint fidelity** (Moran's I, joint C2ST, the `pos` distribution variants, and the `ct/*`
 concordance groups).
 
-| Group | Keys | Shape | Needs |
-|---|---|---|---|
-| Distribution | `mmd2/{x,pos}`, `ot_w1/{x,pos}`, `ot_w2/{x,pos}` | flat or niche | `torch`, `pot` |
-| C2ST (label-free) | `c2st/{acc,auc,gene_acc,gene_auc}` | flat or niche | `sklearn` |
-| C2ST nearest-neighbor (label-free) | `c2st/{nn,nn_std,nn_real_ref}` | flat or niche | `scipy` |
-| Moran's I (label-free) | `moran/{mae,corr,real_mean,gen_mean}` | flat or niche | `squidpy` — over **all** generated cells vs the full real slide |
-| Pointwise regression | `x/{mse,mae}`, `pos/{mse,mae}` | niche only | matched `gt_*` |
-| Expression reconstruction | `recon/{mse_gen,mse_real,mse_gap}` | flat or niche | trained regressor (`--regressor`) |
-| Cell-type concordance *(advanced)* | `ct/{f1,acc,prop_kl,prop_tv,prop_jsd}` | flat or niche | trained classifier (+ paired niches `gt_*`, auto-built from a flat slide) |
-| Classifier accuracy gap *(advanced)* | `ct/{acc_real,acc_gen,acc_gap}` | flat or niche | trained classifier (+ `gt_*` and `gt_ct`; from `ct_key` for a flat slide) |
+| Group                                | Keys                                             | Shape         | Needs                                                                     |
+| ------------------------------------ | ------------------------------------------------ | ------------- | ------------------------------------------------------------------------- |
+| Distribution                         | `mmd2/{x,pos}`, `ot_w1/{x,pos}`, `ot_w2/{x,pos}` | flat or niche | `torch`, `pot`                                                            |
+| C2ST (label-free)                    | `c2st/{acc,auc,gene_acc,gene_auc}`               | flat or niche | `sklearn`                                                                 |
+| C2ST nearest-neighbor (label-free)   | `c2st/{nn,nn_std,nn_real_ref}`                   | flat or niche | `scipy`                                                                   |
+| Moran's I (label-free)               | `moran/{mae,corr,real_mean,gen_mean}`            | flat or niche | `squidpy` — over **all** generated cells vs the full real slide           |
+| Pointwise regression                 | `x/{mse,mae}`, `pos/{mse,mae}`                   | niche only    | matched `gt_*`                                                            |
+| Expression reconstruction            | `recon/{mse_gen,mse_real,mse_gap}`               | flat or niche | trained regressor (`--regressor`)                                         |
+| Cell-type concordance *(advanced)*   | `ct/{f1,acc,prop_kl,prop_tv,prop_jsd}`           | flat or niche | trained classifier (+ paired niches `gt_*`, auto-built from a flat slide) |
+| Classifier accuracy gap *(advanced)* | `ct/{acc_real,acc_gen,acc_gap}`                  | flat or niche | trained classifier (+ `gt_*` and `gt_ct`; from `ct_key` for a flat slide) |
 
 Example metric tables and per-model write-ups live under `reports/` (e.g.
 `reports/model_comparison_shared50.csv`, `reports/otcfm1025_vs_nicheflow.md`).
@@ -261,14 +261,14 @@ Per-run parameter overrides use Hydra syntax, e.g. `generator.n_pcs=50 generator
    gene-space cells are projected through the target PCA; cells already in PCA space are passed
    through unchanged (supply a `TargetSlide` already in that basis).
 
-2. Add `configs/generator/<name>.yaml` pointing `_target_` at the class:
+1. Add `configs/generator/<name>.yaml` pointing `_target_` at the class:
 
    ```yaml
    _target_: paired_slides_eval.adapters.<name>.MyGenerator
    n_pcs: 50
    ```
 
-3. Select it with `generator=<name>`.
+1. Select it with `generator=<name>`.
 
 For library use, a `BaseGenerator` instance (or any matching callable) is accepted directly:
 `run_pipeline("source.h5ad", "target.h5ad", "model.ckpt", generator=MyGenerator())`.

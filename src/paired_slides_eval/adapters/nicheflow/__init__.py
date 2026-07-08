@@ -8,6 +8,7 @@ Needs the ``[pipeline]`` extra: ``pip install -e ../nicheflow_mba``.
 
 Lower-level pieces (``preprocess_pair``, ``generate``, the ``H5ADPreprocessor``) are exported too,
 for users who want to drive the steps by hand.
+
 """
 
 from paired_slides_eval.adapters.nicheflow.generate import GenerationResult, generate

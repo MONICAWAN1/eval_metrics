@@ -1,8 +1,10 @@
-"""Classifier / regressor probes and paired-niche assembly for the ``ct/*`` and ``recon`` groups.
+"""Classifier / regressor probes and paired-niche assembly for the ``ct/*`` and
+``recon`` groups.
 
-Loads a trained spatial classifier/regressor from a checkpoint, and — for a flat whole-slide model
-that supplies no niche pairing — reconstructs paired real/generated niches from geometry so the
-classifier metrics can still run.
+Loads a trained spatial classifier/regressor from a checkpoint, and — for a flat
+whole-slide model that supplies no niche pairing — reconstructs paired
+real/generated niches from geometry so the classifier metrics can still run.
+
 """
 
 from __future__ import annotations
@@ -18,7 +20,8 @@ from paired_slides_eval.metrics.concordance import _resolve_n_neighbors
 
 
 def _has_paired_niches(generated) -> bool:
-    """True if ``generated`` carries the paired real microenvironments the classifier groups need."""
+    """True if ``generated`` carries the paired real microenvironments the
+    classifier groups need."""
     return (
         getattr(generated, "gt_x", None) is not None
         and getattr(generated, "gt_pos", None) is not None
@@ -36,16 +39,18 @@ def _auto_paired_niches(
     seed: int,
     flat_pairing: str,
 ) -> tuple[GeneratedNiches | None, str]:
-    """Reconstruct paired niches from a flat slide via geometry, for the classifier groups.
+    """Reconstruct paired niches from a flat slide via geometry, for the
+    classifier groups.
 
     The niche size matches what the spatial classifier was trained on (``_resolve_n_neighbors``);
     a gene-only classifier only reads the centroid, so a single point suffices. Returns ``None``
     when there are too few cells to form a niche. ``gt_ct`` is filled only when the target carries
     cell-type labels (``target.ct``), so ``ct_gap`` is enabled exactly when those labels exist.
+
     """
     if flat_pairing not in ("fixed_target_ot", "nearest_real"):
         raise ValueError(
-            f"flat_pairing must be 'fixed_target_ot' or 'nearest_real', got {flat_pairing!r}"
+            f"flat_pairing must be 'fixed_target_ot' or 'nearest_real', got {flat_pairing!r}",
         )
 
     gen_pos = generated.flat_pos
@@ -107,11 +112,13 @@ def build_spatial_classifier(
     num_heads: int = 4,
     mask_centroid: bool = True,
 ):
-    """Reconstruct the spatial SetTransformer classifier and load a checkpoint into it.
+    """Reconstruct the spatial SetTransformer classifier and load a checkpoint
+    into it.
 
     The net is **expression-only** (no coordinates); hyperparameters must match what was trained, and
     ``load_spatial_classifier`` attaches the training KNN ``k`` so the classifier metrics build
     identically sized niches.
+
     """
     import torch
 
@@ -140,10 +147,12 @@ def build_spatial_regressor(
     num_heads: int = 4,
     mask_centroid: bool = True,
 ):
-    """Reconstruct the masked-centroid expression regressor and load a checkpoint into it.
+    """Reconstruct the masked-centroid expression regressor and load a
+    checkpoint into it.
 
     The regressor reuses ``SpatialCTClassifierNet`` with ``output_dim == input_dim``; checkpoint
     loading also attaches the training KNN ``k`` so reconstruction eval rebuilds matching niches.
+
     """
     return build_spatial_classifier(
         ckpt_path,

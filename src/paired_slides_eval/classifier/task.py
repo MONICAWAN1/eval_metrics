@@ -102,7 +102,9 @@ class CellTypeClassification(LightningModule):
         metrics = tm.MetricCollection(
             {
                 "f1": tm.F1Score(
-                    task="multiclass", num_classes=self.net.output_dim, average="weighted"
+                    task="multiclass",
+                    num_classes=self.net.output_dim,
+                    average="weighted",
                 ),
                 "auc": tm.AUROC(task="multiclass", num_classes=self.net.output_dim),
                 "accuracy": tm.Accuracy(task="multiclass", num_classes=self.net.output_dim),
@@ -113,32 +115,42 @@ class CellTypeClassification(LightningModule):
                     average="weighted",
                 ),
                 "precision": tm.Precision(
-                    task="multiclass", num_classes=self.net.output_dim, average="weighted"
+                    task="multiclass",
+                    num_classes=self.net.output_dim,
+                    average="weighted",
                 ),
                 "recall": tm.Recall(
-                    task="multiclass", num_classes=self.net.output_dim, average="weighted"
+                    task="multiclass",
+                    num_classes=self.net.output_dim,
+                    average="weighted",
                 ),
                 # Macro (unweighted-by-support) variants surface minority-class
                 # performance, which the weighted/accuracy metrics hide under class
                 # imbalance. Use these to select a balanced model.
                 "f1_macro": tm.F1Score(
-                    task="multiclass", num_classes=self.net.output_dim, average="macro"
+                    task="multiclass",
+                    num_classes=self.net.output_dim,
+                    average="macro",
                 ),
                 "recall_macro": tm.Recall(
-                    task="multiclass", num_classes=self.net.output_dim, average="macro"
+                    task="multiclass",
+                    num_classes=self.net.output_dim,
+                    average="macro",
                 ),
-            }
+            },
         )
         plot_metrics = tm.MetricCollection(
             {
                 "ConfusionMatrix": tm.ConfusionMatrix(
-                    task="multiclass", num_classes=self.net.output_dim
+                    task="multiclass",
+                    num_classes=self.net.output_dim,
                 ),
                 "ROC": tm.ROC(task="multiclass", num_classes=self.net.output_dim),
                 "PRCurve": tm.PrecisionRecallCurve(
-                    task="multiclass", num_classes=self.net.output_dim
+                    task="multiclass",
+                    num_classes=self.net.output_dim,
                 ),
-            }
+            },
         )
         self.val_metrics = metrics.clone(prefix="val/")
         self.test_metrics = metrics.clone(prefix="test/")
@@ -169,7 +181,8 @@ class CellTypeClassification(LightningModule):
         _logger.info(f"Using {self._class_weight} class weights: {weight.tolist()}")
 
     def _balanced_class_weights(self, sqrt: bool = False) -> Tensor:
-        """Inverse-(sqrt-)frequency weights from the train split (absent classes -> 0)."""
+        """Inverse-(sqrt-)frequency weights from the train split (absent classes
+        -> 0)."""
         from torch.utils.data import Subset
 
         train = self.trainer.datamodule.train_dataset
@@ -179,7 +192,7 @@ class CellTypeClassification(LightningModule):
         # Read labels cheaply without materialising the (expensive) neighbour gather.
         if hasattr(base, "ct_by_t") and hasattr(base, "index"):  # SpatialH5ADCTDataset
             labels = torch.tensor(
-                [int(base.ct_by_t[base.index[i][0]][base.index[i][1]]) for i in indices]
+                [int(base.ct_by_t[base.index[i][0]][base.index[i][1]]) for i in indices],
             )
         elif hasattr(base, "ct"):  # H5ADCTDataset (gene-only)
             labels = base.ct[torch.as_tensor(list(indices))]
@@ -257,6 +270,7 @@ class SpatialExprRegression(LightningModule):
     generated slide is read as a realism probe (see :mod:`paired_slides_eval.metrics.expr_recon`).
     Shares the spatial dataset + net with the ct classifier; only the head (``output_dim == n_pcs``),
     the supervision (``target="expr"``) and the loss (MSE) differ.
+
     """
 
     def __init__(

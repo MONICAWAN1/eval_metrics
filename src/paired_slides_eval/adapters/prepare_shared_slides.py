@@ -1,4 +1,5 @@
-"""Build the shared artifacts for the unified cross-model evaluation (NicheFlow recipe).
+"""Build the shared artifacts for the unified cross-model evaluation (NicheFlow
+recipe).
 
 Replaces the retired raw-gene-PCA ``prepare_classifier_slide``. Produces two pickles from one
 ``preprocess_pair`` fit, so every model is measured in the same basis (see
@@ -18,6 +19,7 @@ Usage::
         --source DATA/adata_..-1.000.h5ad --target DATA/adata_..-1.001.h5ad \
         --classifier_slide DATA/adata_..-1.002.h5ad --ct_key class --n_pcs 50 \
         --out_pair data/abca_pair.pkl --out_classifier data/abca_clf.pkl
+
 """
 
 from __future__ import annotations
@@ -43,7 +45,7 @@ def _main() -> None:
 
     ap = argparse.ArgumentParser(
         description="Build the shared pair + classifier-slide pickles (NicheFlow recipe) for the "
-        "unified cross-model evaluation."
+        "unified cross-model evaluation.",
     )
     ap.add_argument("--source", required=True, help="source slide .h5ad (defines the shared PCA)")
     ap.add_argument("--target", required=True, help="target slide .h5ad (the evaluate --target)")
@@ -60,7 +62,9 @@ def _main() -> None:
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--out_pair", required=True, help="path for the source+target pair .pkl")
     ap.add_argument(
-        "--out_classifier", required=True, help="path for the classifier-slide .pkl (trainer data_fp)"
+        "--out_classifier",
+        required=True,
+        help="path for the classifier-slide .pkl (trainer data_fp)",
     )
     args = ap.parse_args()
 
@@ -89,11 +93,11 @@ def _main() -> None:
     _dump(clf_ds, args.out_classifier)
     print(
         f"saved shared pair -> {args.out_pair} "
-        f"(target timepoint={ds_pair.timepoints_ordered[-1]}, n_pcs={ds_pair.X_pca.shape[1]})"
+        f"(target timepoint={ds_pair.timepoints_ordered[-1]}, n_pcs={ds_pair.X_pca.shape[1]})",
     )
     print(
         f"saved classifier slide -> {args.out_classifier} "
-        f"({len(clf_ds.ct)} cells, {len(clf_ds.ct_ordered)} classes)"
+        f"({len(clf_ds.ct)} cells, {len(clf_ds.ct_ordered)} classes)",
     )
 
 

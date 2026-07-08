@@ -8,6 +8,7 @@ comparing the two per-PC I vectors, variance-weighted by the real per-PC varianc
 Because the model generates *every* cell of each niche (not just centroids), Moran's I is
 computed over **all** generated cells pooled into one cloud, compared against the full real
 target slide — no density-matched grid subsample is involved.
+
 """
 
 from __future__ import annotations
@@ -19,7 +20,12 @@ import numpy as np
 from paired_slides_eval.metrics._common import weighted_pearson
 
 
-def morans_i(features: np.ndarray, positions: np.ndarray, n_neighs: int = 6, seed: int = 0) -> np.ndarray:
+def morans_i(
+    features: np.ndarray,
+    positions: np.ndarray,
+    n_neighs: int = 6,
+    seed: int = 0,
+) -> np.ndarray:
     """Moran's I per feature (column of ``features``) over a kNN spatial graph.
 
     Args:
@@ -28,6 +34,7 @@ def morans_i(features: np.ndarray, positions: np.ndarray, n_neighs: int = 6, see
         n_neighs: neighbours for squidpy's generic kNN spatial graph (row-normalised weights).
     Returns:
         (F,) array of Moran's I, one per feature, in column order.
+
     """
     import anndata as ad
     import squidpy as sq
@@ -63,11 +70,13 @@ def morans_compare(
     weight: str = "variance",
     seed: int = 0,
 ) -> dict[str, float]:
-    """Compare per-PC Moran's I of all generated cells vs the full real target slide.
+    """Compare per-PC Moran's I of all generated cells vs the full real target
+    slide.
 
     ``gen_*`` are all generated cells pooled into one cloud (every cell of every niche, not just
     centroids). ``real_*`` are the real target slide's cells. PCs are weighted by the real per-PC
     variance (``"variance"``; also ``"uniform"`` / ``"sqrt"``).
+
     """
     p = f"{prefix}/" if prefix else ""
     gen_pos, gen_x = _dedupe(np.asarray(gen_pos), np.asarray(gen_x))

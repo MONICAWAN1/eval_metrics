@@ -1,6 +1,7 @@
 """The scib-style DataFrame table front door (`metrics.metrics` / `compare`).
 
 Pure numpy — uses the `regression` group so no torch/sklearn is needed.
+
 """
 
 import numpy as np

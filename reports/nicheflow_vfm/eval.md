@@ -9,16 +9,16 @@ target. As with CFM, the niche-shaped output means the **regression** group (`x/
 
 ## Setup
 
-| Item | Value |
-|---|---|
-| Model | NicheFlow VFM (`vfm_objective=GLVFM`), `nicheflow_mba/outputs/2026-06-25/00-54-44/checkpoints/last.ckpt` — **mid-training, step 55000** |
-| Training data | `abca_12425.pkl` — **1.024 → 1.025**, same mouse, **unaligned** (no PASTE2) |
-| Source slide | `adata_Zhuang_Zhuang-ABCA-1.024.h5ad` |
-| Target slide | `adata_Zhuang_Zhuang-ABCA-1.025.h5ad` (9962 cells; 20 cell types over the 1.024∪1.025 vocabulary) |
-| Generated cells | `artifacts/nicheflow_vfm/generated.h5ad` — **513 niches × 68 points** (niche-shaped, with paired real ground truth) |
-| Classifier-training slide | `adata_Zhuang_Zhuang-ABCA-1.026.h5ad` — nearby serial section, same mouse |
-| Shared feature space | NicheFlow's shared whitened PCA on source+target, **50 PCs**; per-slide standardized coordinates + standardized `X_pca` (the space the flow trained in) |
-| Classifier | `SpatialCTClassifierNet` (Set-Transformer, masked centroid), `coord_dim=2`, 20 classes — trained in-process on 1.026 via the adapter's `classifier_h5ad` mechanism |
+| Item                      | Value                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Model                     | NicheFlow VFM (`vfm_objective=GLVFM`), `nicheflow_mba/outputs/2026-06-25/00-54-44/checkpoints/last.ckpt` — **mid-training, step 55000**                            |
+| Training data             | `abca_12425.pkl` — **1.024 → 1.025**, same mouse, **unaligned** (no PASTE2)                                                                                        |
+| Source slide              | `adata_Zhuang_Zhuang-ABCA-1.024.h5ad`                                                                                                                              |
+| Target slide              | `adata_Zhuang_Zhuang-ABCA-1.025.h5ad` (9962 cells; 20 cell types over the 1.024∪1.025 vocabulary)                                                                  |
+| Generated cells           | `artifacts/nicheflow_vfm/generated.h5ad` — **513 niches × 68 points** (niche-shaped, with paired real ground truth)                                                |
+| Classifier-training slide | `adata_Zhuang_Zhuang-ABCA-1.026.h5ad` — nearby serial section, same mouse                                                                                          |
+| Shared feature space      | NicheFlow's shared whitened PCA on source+target, **50 PCs**; per-slide standardized coordinates + standardized `X_pca` (the space the flow trained in)            |
+| Classifier                | `SpatialCTClassifierNet` (Set-Transformer, masked centroid), `coord_dim=2`, 20 classes — trained in-process on 1.026 via the adapter's `classifier_h5ad` mechanism |
 
 > **No alignment mismatch (unlike the CFM report).** This VFM checkpoint was trained on the
 > **unaligned** 1.024→1.025 pair (`abca_12425.pkl`), which is exactly what the eval adapter's
@@ -32,59 +32,59 @@ All groups ran (none skipped): the niche-shaped output supplies matched ground t
 
 ### Distribution / two-sample (expression + position)
 
-| Metric | Value | Notes |
-|---|---|---|
-| `c2st/acc` | 0.5935 | real-vs-generated classifier accuracy — **near chance (0.5)**: generated cells are hard to tell from real |
-| `c2st/auc` | 0.6188 | |
-| `c2st/graph_acc` | 0.6088 | spatially-aware GCN C2ST (expression-only node features over a joint spatial-kNN graph) |
-| `c2st/graph_auc` | 0.6519 | near the MLP C2ST — generated niches stay hard to separate even under the graph view |
-| `c2st/pos_acc` | 0.5813 | position-only C2ST |
-| `mmd2/x` | 0.0030 | MMD² on expression — very small |
-| `mmd2/pos` | 0.0279 | MMD² on coordinates |
-| `ot_w1/x` | 5.2066 | Wasserstein-1, expression |
-| `ot_w2/x` | 5.3829 | Wasserstein-2, expression |
-| `ot_w1/pos` | 0.2142 | Wasserstein-1, coordinates |
-| `ot_w2/pos` | 0.2771 | Wasserstein-2, coordinates |
+| Metric           | Value  | Notes                                                                                                     |
+| ---------------- | ------ | --------------------------------------------------------------------------------------------------------- |
+| `c2st/acc`       | 0.5935 | real-vs-generated classifier accuracy — **near chance (0.5)**: generated cells are hard to tell from real |
+| `c2st/auc`       | 0.6188 |                                                                                                           |
+| `c2st/graph_acc` | 0.6088 | spatially-aware GCN C2ST (expression-only node features over a joint spatial-kNN graph)                   |
+| `c2st/graph_auc` | 0.6519 | near the MLP C2ST — generated niches stay hard to separate even under the graph view                      |
+| `c2st/pos_acc`   | 0.5813 | position-only C2ST                                                                                        |
+| `mmd2/x`         | 0.0030 | MMD² on expression — very small                                                                           |
+| `mmd2/pos`       | 0.0279 | MMD² on coordinates                                                                                       |
+| `ot_w1/x`        | 5.2066 | Wasserstein-1, expression                                                                                 |
+| `ot_w2/x`        | 5.3829 | Wasserstein-2, expression                                                                                 |
+| `ot_w1/pos`      | 0.2142 | Wasserstein-1, coordinates                                                                                |
+| `ot_w2/pos`      | 0.2771 | Wasserstein-2, coordinates                                                                                |
 
 ### Regression (matched ground truth, niche-shaped)
 
-| Metric | Value |
-|---|---|
-| `x/mae` | 1.0624 |
-| `x/mse` | 1.9590 |
+| Metric    | Value  |
+| --------- | ------ |
+| `x/mae`   | 1.0624 |
+| `x/mse`   | 1.9590 |
 | `pos/mae` | 0.5322 |
 | `pos/mse` | 0.4506 |
 
 ### Geometry (point-set distances)
 
-| Metric | Value |
-|---|---|
+| Metric     | Value  |
+| ---------- | ------ |
 | `psd/mean` | 0.0196 |
-| `psd/max` | 0.1640 |
+| `psd/max`  | 0.1640 |
 | `spd/mean` | 0.0138 |
-| `spd/max` | 0.2250 |
+| `spd/max`  | 0.2250 |
 
 ### Moran's I (spatial autocorrelation)
 
-| Metric | Value | Notes |
-|---|---|---|
-| `moran/real_mean` | 0.1887 | real slide spatial structure |
-| `moran/gen_mean` | 0.1752 | generated **closely matches** the real spatial autocorrelation |
-| `moran/corr` | 0.9811 | per-gene Moran correlation real-vs-gen — very high |
-| `moran/mae` | 0.0230 | small |
+| Metric            | Value  | Notes                                                          |
+| ----------------- | ------ | -------------------------------------------------------------- |
+| `moran/real_mean` | 0.1887 | real slide spatial structure                                   |
+| `moran/gen_mean`  | 0.1752 | generated **closely matches** the real spatial autocorrelation |
+| `moran/corr`      | 0.9811 | per-gene Moran correlation real-vs-gen — very high             |
+| `moran/mae`       | 0.0230 | small                                                          |
 
 ### Cell-type classifier (`ct/*`, neutral 1.026-trained classifier)
 
-| Metric | Value | Notes |
-|---|---|---|
+| Metric        | Value  | Notes                                                                       |
+| ------------- | ------ | --------------------------------------------------------------------------- |
 | `ct/acc_real` | 0.2924 | classifier accuracy on **real** 1.025 niches (20-class, neighbourhood-only) |
-| `ct/acc_gen` | 0.3080 | accuracy on **generated** niches (vs the paired real centroid's true label) |
-| `ct/acc_gap` | 0.0156 | `|acc_real − acc_gen|` — tiny gap → generated niches as classifiable as real |
-| `ct/acc` | 0.6062 | label agreement between generated and paired-real niches |
-| `ct/f1` | 0.5715 | weighted-F1 of that agreement |
-| `ct/prop_kl` | 0.1584 | cell-type composition divergence (KL) |
-| `ct/prop_tv` | 0.1404 | total variation |
-| `ct/prop_jsd` | 0.0164 | Jensen–Shannon |
+| `ct/acc_gen`  | 0.3080 | accuracy on **generated** niches (vs the paired real centroid's true label) |
+| `ct/acc_gap`  | 0.0156 | \`                                                                          |
+| `ct/acc`      | 0.6062 | label agreement between generated and paired-real niches                    |
+| `ct/f1`       | 0.5715 | weighted-F1 of that agreement                                               |
+| `ct/prop_kl`  | 0.1584 | cell-type composition divergence (KL)                                       |
+| `ct/prop_tv`  | 0.1404 | total variation                                                             |
+| `ct/prop_jsd` | 0.0164 | Jensen–Shannon                                                              |
 
 **Reading.** Even mid-training (step 55000), the VFM is strong: generated cells are **near-inseparable
 from real** (`c2st/acc ≈ 0.59`, `c2st/auc ≈ 0.62`), expression marginals match tightly

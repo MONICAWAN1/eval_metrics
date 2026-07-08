@@ -3,6 +3,7 @@
 These build the niche scaffolding from raw coordinates: the per-cell neighbour list (radius graph)
 and the density-matched grid subsample of centroids. Kept identical to the NicheFlow originals so
 the niches the classifier trains on (and that generation conditions on) match the source repo.
+
 """
 
 from __future__ import annotations
@@ -13,10 +14,10 @@ from scipy.spatial import cKDTree
 
 
 def grid_based_sampling_by_y(coords: np.ndarray, dx: float, dy: float) -> np.ndarray:
-    """Discretize y in fixed steps of dy. For each y-bin, find the subset of points
-    that lie within [y_i, y_i + dy). Determine min_x and max_x for that subset,
-    then create an x-grid (with spacing dx) across that bin's range.
-    For each (x, y_center), pick the nearest real point using a KD-tree.
+    """Discretize y in fixed steps of dy. For each y-bin, find the subset of
+    points that lie within [y_i, y_i + dy). Determine min_x and max_x for that
+    subset, then create an x-grid (with spacing dx) across that bin's range. For
+    each (x, y_center), pick the nearest real point using a KD-tree.
 
     Parameters
     ----------
@@ -31,6 +32,7 @@ def grid_based_sampling_by_y(coords: np.ndarray, dx: float, dy: float) -> np.nda
     -------
     np.ndarray
         Unique integer indices of 'points' that were chosen.
+
     """
     # Ensure points is an N x 2 array
     coords = np.asarray(coords)

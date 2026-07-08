@@ -1,17 +1,16 @@
 # NicheFlow generation adapter. Selected with `generator=nicheflow`.
 _target_: paired_slides_eval.adapters.nicheflow.NicheFlowGenerator
-
-n_pcs: 50               # components for the shared source+target PCA
-cell_type_column: class # obs column holding cell-type labels
-radius: 0.15            # radius-graph neighbourhood size
-dx: 0.15               # grid-subsample resolution (x)
-dy: 0.2                # grid-subsample resolution (y)
+n_pcs: 50  # components for the shared source+target PCA
+cell_type_column: class  # obs column holding cell-type labels
+radius: 0.15  # radius-graph neighbourhood size
+dx: 0.15  # grid-subsample resolution (x)
+dy: 0.2  # grid-subsample resolution (y)
 device: cpu
-num_steps: 20          # flow sampler steps
+num_steps: 20  # flow sampler steps
 solver: euler
-variant: cfm           # cfm | vfm (must match the checkpoint)
-vfm_objective: GLVFM   # VFM objective (GVFM | GLVFM); only used when variant=vfm, must match the ckpt
-n_slices: null         # backbone one-hot dimension (null -> number of slides)
-classifier_h5ad: null  # held-out slide to train the spatial classifier on (enables ct/*)
-classifier_ckpt: null  # or load a pre-trained spatial classifier checkpoint
-classifier_train_kwargs: null
+variant: cfm  # cfm | vfm (must match the checkpoint)
+vfm_objective: GLVFM  # VFM objective (GVFM | GLVFM); only used when variant=vfm, must match the ckpt
+n_slices:  # backbone one-hot dimension (null -> number of slides)
+classifier_h5ad:  # held-out slide to train the spatial classifier on (enables ct/*)
+classifier_ckpt:  # or load a pre-trained spatial classifier checkpoint
+classifier_train_kwargs:

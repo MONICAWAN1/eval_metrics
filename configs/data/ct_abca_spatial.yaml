@@ -1,5 +1,4 @@
-defaults:
-  - ct_abca
+defaults: [ct_abca]
 
 datamodule:
   # KNN neighbourhood size: k = number of neighbours around the centroid (niche = k+1 points).

@@ -3,6 +3,7 @@
 A whole-slide model emits a flat `GeneratedSlide` (no niche structure). The classifier groups
 (`concordance`, `ct_gap`) need paired microenvironments; these tests cover both the pure-numpy
 geometry builder and `evaluate` auto-building niches from a flat slide.
+
 """
 
 import numpy as np
@@ -24,7 +25,12 @@ def test_build_paired_niches_shapes_and_centroids(rng):
     k = 6
 
     nx, npos, gtx, gtpos, gtct = build_paired_niches_from_flat(
-        gen_x, gen_pos, real_x, real_pos, k, real_ct=real_ct
+        gen_x,
+        gen_pos,
+        real_x,
+        real_pos,
+        k,
+        real_ct=real_ct,
     )
     # k = number of NEIGHBOURS, so each niche has k+1 points (centroid + k).
     assert nx.shape == (50, k + 1, 4) and npos.shape == (50, k + 1, 2)
@@ -52,8 +58,12 @@ def test_build_paired_niches_clamps_k_and_subsamples(rng):
     assert nx.shape == (3, 3, 4) and gtx.shape == (3, 2, 4)
     # centroid_indices restricts which generated cells become niches (k=2 -> 3 points).
     nx2, *_, gtct = build_paired_niches_from_flat(
-        rng.normal(size=(20, 4)), rng.uniform(size=(20, 2)),
-        real_x, real_pos, 2, centroid_indices=np.arange(5),
+        rng.normal(size=(20, 4)),
+        rng.uniform(size=(20, 2)),
+        real_x,
+        real_pos,
+        2,
+        centroid_indices=np.arange(5),
     )
     assert nx2.shape == (5, 3, 4) and gtct is None
 
@@ -101,8 +111,10 @@ class _TinyClassifier(torch.nn.Module):
 
 def _flat_target_and_slide(real_slide):
     target = TargetSlide(
-        x=real_slide["x"], pos=real_slide["pos"],
-        ct=real_slide["ct"], n_classes=real_slide["n_classes"],
+        x=real_slide["x"],
+        pos=real_slide["pos"],
+        ct=real_slide["ct"],
+        n_classes=real_slide["n_classes"],
     )
     rng = np.random.default_rng(1)
     n_pcs = real_slide["x"].shape[1]
@@ -114,7 +126,7 @@ def _flat_target_and_slide(real_slide):
 def test_evaluate_auto_builds_niches_from_flat_slide(real_slide):
     target, generated = _flat_target_and_slide(real_slide)
     k = 8
-    clf = _TinyClassifier(real_slide["x"].shape[1],real_slide["n_classes"], n_neighbors=k)
+    clf = _TinyClassifier(real_slide["x"].shape[1], real_slide["n_classes"], n_neighbors=k)
 
     out = evaluate(target, generated, classifier=clf, groups=("concordance", "ct_gap"))
     # Both classifier groups now run on the flat slide (no GeneratedNiches supplied).
@@ -137,10 +149,13 @@ def test_evaluate_uses_fixed_target_centroid_ot_for_flat_slide(real_slide):
 
 def test_evaluate_auto_niche_can_be_disabled(real_slide):
     target, generated = _flat_target_and_slide(real_slide)
-    clf = _TinyClassifier(real_slide["x"].shape[1],real_slide["n_classes"], n_neighbors=8)
+    clf = _TinyClassifier(real_slide["x"].shape[1], real_slide["n_classes"], n_neighbors=8)
     out = evaluate(
-        target, generated, classifier=clf,
-        groups=("concordance", "ct_gap"), auto_niche_from_flat=False,
+        target,
+        generated,
+        classifier=clf,
+        groups=("concordance", "ct_gap"),
+        auto_niche_from_flat=False,
     )
     # With auto-build off, a flat slide has no paired niches -> both skipped.
     assert "test/ct/acc" not in out
@@ -151,7 +166,7 @@ def test_evaluate_flat_ct_gap_needs_target_labels(real_slide):
     target, generated = _flat_target_and_slide(real_slide)
     target.ct = None  # no labels -> ct_gap cannot score, concordance still can
     target.n_classes = None
-    clf = _TinyClassifier(real_slide["x"].shape[1],4, n_neighbors=6)
+    clf = _TinyClassifier(real_slide["x"].shape[1], 4, n_neighbors=6)
     out = evaluate(target, generated, classifier=clf, groups=("concordance", "ct_gap"))
     assert "test/ct/acc" in out  # concordance ran
     assert any("ct_gap" in s for s in out["_skipped"])  # ct_gap skipped (no gt_ct)

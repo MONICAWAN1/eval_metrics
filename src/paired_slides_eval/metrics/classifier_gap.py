@@ -1,4 +1,5 @@
-"""Cell-type classifier accuracy gap (``ct/acc_real``, ``ct/acc_gen``, ``ct/acc_gap``).
+"""Cell-type classifier accuracy gap (``ct/acc_real``, ``ct/acc_gen``,
+``ct/acc_gap``).
 
 A complementary read on the concordance probe (see :mod:`paired_slides_eval.metrics.concordance`).
 The intuition: run the same trained cell-type classifier on the real target niches and on the
@@ -9,6 +10,7 @@ and a large gap flags that generation distorts the local structure the classifie
 
 This reuses the niche assembly (``build_microenv_points``) and the ``n_neighbors`` resolution from
 the concordance metric so both probes feed the classifier identically sized microenvironments.
+
 """
 
 from __future__ import annotations
@@ -24,7 +26,8 @@ from paired_slides_eval.metrics.concordance import _resolve_n_neighbors
 
 
 def _classify_niches(classifier, feats, device):
-    """Run a frozen classifier over assembled niche features and return argmax labels."""
+    """Run a frozen classifier over assembled niche features and return argmax
+    labels."""
     import torch
 
     with torch.no_grad():
@@ -47,7 +50,8 @@ def fixed_reference_accuracy(
     n_centroids: int = 2000,
     seed: int = 0,
 ) -> float:
-    """Classifier accuracy on a **model-independent** sample of real target niches.
+    """Classifier accuracy on a **model-independent** sample of real target
+    niches.
 
     The paired ``ct/acc_real`` ([`classifier_accuracy_gap`]) is measured on whichever real niches got
     paired to a model's generated centroids, so it drifts between models (and between the flat-slide
@@ -55,6 +59,7 @@ def fixed_reference_accuracy(
     target cells as centroids and builds their real microenvironments directly — making ``acc_real`` a
     constant property of (classifier, target, niche size), comparable across every model. Used by
     :func:`~paired_slides_eval.evaluate.evaluate` when ``ct_real_reference='fixed'``.
+
     """
     import torch
 
@@ -62,13 +67,21 @@ def fixed_reference_accuracy(
     n_real = len(real_pos)
     rng = np.random.default_rng(seed)
     centroids = (
-        rng.choice(n_real, n_centroids, replace=False) if n_real > n_centroids else np.arange(n_real)
+        rng.choice(n_real, n_centroids, replace=False)
+        if n_real > n_centroids
+        else np.arange(n_real)
     )
 
     k = _resolve_n_neighbors(n_neighbors, classifier) if spatial else 1
     # gen == real here, so the "generated" niche assembled at each sampled centroid IS the real niche.
     niche_x, niche_pos, _, _, gt_ct = build_paired_niches_from_flat(
-        real_x, real_pos, real_x, real_pos, k, real_ct=real_ct, centroid_indices=centroids
+        real_x,
+        real_pos,
+        real_x,
+        real_pos,
+        k,
+        real_ct=real_ct,
+        centroid_indices=centroids,
     )
 
     feats = build_microenv_points(niche_x, niche_pos, k) if spatial else niche_x[:, 0, :]
@@ -90,7 +103,8 @@ def classifier_accuracy_gap(
     spatial: bool = True,
     n_neighbors: int | None = None,
 ) -> dict[str, float]:
-    """Accuracy of ``classifier`` on real vs. generated niches against true labels, and the gap.
+    """Accuracy of ``classifier`` on real vs. generated niches against true
+    labels, and the gap.
 
     Args:
         gen_x / gen_pos: generated microenvironments ``(B, N, n_pcs)`` / ``(B, N, coord)``,
@@ -107,6 +121,7 @@ def classifier_accuracy_gap(
     Returns:
         ``{prefix/ct/acc_real, prefix/ct/acc_gen, prefix/ct/acc_gap}`` — accuracy on the real
         niches, on the generated niches (both vs. the true centroid labels), and ``|real - gen|``.
+
     """
     import torch
 

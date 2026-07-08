@@ -4,6 +4,7 @@ Train a binary classifier to tell sample ``X`` (label 0) from ``Y`` (label 1); t
 accuracy/AUC is the statistic. ~0.5 == indistinguishable (good); ~1.0 == trivially separable
 (bad). ``c2st`` / ``c2st_significance`` are the framework-free kernels (follow Lopez-Paz &
 Oquab 2017); ``c2st_metrics`` is the wrapper computing the per-cell joint and expression-only views.
+
 """
 
 from __future__ import annotations
@@ -23,10 +24,12 @@ def c2st(
     z_score: bool = True,
     max_iter: int = 1000,
 ) -> tuple[float, float]:
-    """Return ``(accuracy, roc_auc)`` of an MLP trained to separate ``X`` from ``Y``.
+    """Return ``(accuracy, roc_auc)`` of an MLP trained to separate ``X`` from
+    ``Y``.
 
     Both metrics are the mean over ``n_folds`` cross-validation folds; ~0.5 indistinguishable,
     ~1.0 trivially separable. ``X`` is the reference for z-scoring (pass the *real* sample).
+
     """
     X = np.asarray(X, dtype=np.float64)
     Y = np.asarray(Y, dtype=np.float64)
@@ -68,6 +71,7 @@ def c2st_significance(
     pooling the two samples and randomly re-assigning labels ``n_perm`` times. Returns the
     observed ``auc``, the ``pval`` (fraction of shuffles with AUC >= observed), and ``null_p95``
     (95th percentile of the null; observed > null_p95 means p < 0.05).
+
     """
     rng = np.random.default_rng(seed)
     X = np.asarray(X, dtype=np.float64)
@@ -122,7 +126,10 @@ def c2st_metrics(
 
     # Diagnostic: per-cell expression-only (the gene marginal).
     gene_acc, gene_auc = c2st(
-        subsample(real_x, max_n, rng), subsample(gen_x, max_n, rng), seed=seed, n_folds=n_folds
+        subsample(real_x, max_n, rng),
+        subsample(gen_x, max_n, rng),
+        seed=seed,
+        n_folds=n_folds,
     )
 
     out = {

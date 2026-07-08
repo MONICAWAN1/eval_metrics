@@ -6,14 +6,14 @@ groups (`ct/*`). The neutral spatial classifier was trained on a *close but diff
 
 ## Setup
 
-| Item | Value |
-|---|---|
-| Target slide | `adata_Zhuang_Zhuang-ABCA-1.001.h5ad` (5893 cells, 1122 genes, 16 cell types) |
-| Generated cells | `artifacts/otcfm/generated.h5ad` — OT-CFM sampled from `cfm_mouse_pca5/ckpt_last.pt` (trained on 1.001), 5893 flat cells in gene space, **random placeholder coordinates** (the model is aspatial) |
-| Classifier-training slide | `adata_Zhuang_Zhuang-ABCA-1.002.h5ad` — adjacent serial section, same mouse (5503 cells after dropping 2 out-of-vocabulary cells) |
-| Shared feature space | PCA fit on the target's raw genes, **50 PCs** (`--n_pcs 50`); generated cells projected into it |
-| Classifier | `SpatialCTClassifierNet` (Set-Transformer, masked centroid), `n_neighbors=32`, `coord_dim=2`, 16 classes |
-| Classifier checkpoint | `outputs/clf_train_otcfm/checkpoints/last.ckpt` (symlinked as `artifacts/otcfm/classifier.ckpt`) |
+| Item                      | Value                                                                                                                                                                                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Target slide              | `adata_Zhuang_Zhuang-ABCA-1.001.h5ad` (5893 cells, 1122 genes, 16 cell types)                                                                                                                      |
+| Generated cells           | `artifacts/otcfm/generated.h5ad` — OT-CFM sampled from `cfm_mouse_pca5/ckpt_last.pt` (trained on 1.001), 5893 flat cells in gene space, **random placeholder coordinates** (the model is aspatial) |
+| Classifier-training slide | `adata_Zhuang_Zhuang-ABCA-1.002.h5ad` — adjacent serial section, same mouse (5503 cells after dropping 2 out-of-vocabulary cells)                                                                  |
+| Shared feature space      | PCA fit on the target's raw genes, **50 PCs** (`--n_pcs 50`); generated cells projected into it                                                                                                    |
+| Classifier                | `SpatialCTClassifierNet` (Set-Transformer, masked centroid), `n_neighbors=32`, `coord_dim=2`, 16 classes                                                                                           |
+| Classifier checkpoint     | `outputs/clf_train_otcfm/checkpoints/last.ckpt` (symlinked as `artifacts/otcfm/classifier.ckpt`)                                                                                                   |
 
 The classifier is trained in **exactly** the representation `evaluate.py` feeds it on the OT-CFM
 path — raw-gene-PCA expression (un-whitened) + **raw** coordinates — so train- and eval-time niches
@@ -28,48 +28,48 @@ their nearest real cells).
 
 ### Distribution / two-sample (expression + position)
 
-| Metric | Value | Notes |
-|---|---|---|
-| `c2st/acc` | 0.9975 | real-vs-generated classifier accuracy (joint expr+pos); ~1.0 → trivially separable |
-| `c2st/auc` | 1.0000 | |
-| `c2st/pos_acc` | 0.6635 | position-only C2ST |
-| `mmd2/x` | 0.2558 | MMD² on expression |
-| `mmd2/pos` | 0.0795 | MMD² on coordinates |
-| `ot_w1/x` | 25.3833 | Wasserstein-1, expression |
-| `ot_w2/x` | 30.6471 | Wasserstein-2, expression |
-| `ot_w1/pos` | 0.2175 | Wasserstein-1, coordinates |
-| `ot_w2/pos` | 0.2610 | Wasserstein-2, coordinates |
+| Metric         | Value   | Notes                                                                              |
+| -------------- | ------- | ---------------------------------------------------------------------------------- |
+| `c2st/acc`     | 0.9975  | real-vs-generated classifier accuracy (joint expr+pos); ~1.0 → trivially separable |
+| `c2st/auc`     | 1.0000  |                                                                                    |
+| `c2st/pos_acc` | 0.6635  | position-only C2ST                                                                 |
+| `mmd2/x`       | 0.2558  | MMD² on expression                                                                 |
+| `mmd2/pos`     | 0.0795  | MMD² on coordinates                                                                |
+| `ot_w1/x`      | 25.3833 | Wasserstein-1, expression                                                          |
+| `ot_w2/x`      | 30.6471 | Wasserstein-2, expression                                                          |
+| `ot_w1/pos`    | 0.2175  | Wasserstein-1, coordinates                                                         |
+| `ot_w2/pos`    | 0.2610  | Wasserstein-2, coordinates                                                         |
 
 ### Geometry (point-set distances)
 
-| Metric | Value |
-|---|---|
+| Metric     | Value  |
+| ---------- | ------ |
 | `psd/mean` | 0.0656 |
-| `psd/max` | 0.6653 |
+| `psd/max`  | 0.6653 |
 | `spd/mean` | 0.0137 |
-| `spd/max` | 0.0541 |
+| `spd/max`  | 0.0541 |
 
 ### Moran's I (spatial autocorrelation)
 
-| Metric | Value | Notes |
-|---|---|---|
-| `moran/real_mean` | 0.2527 | real slide has spatial structure |
-| `moran/gen_mean` | -0.0003 | generated ≈ 0 → **no spatial structure** (OT-CFM coords are random placeholders) |
-| `moran/corr` | 0.4803 | per-gene Moran correlation real-vs-gen |
-| `moran/mae` | 0.2530 | |
+| Metric            | Value   | Notes                                                                            |
+| ----------------- | ------- | -------------------------------------------------------------------------------- |
+| `moran/real_mean` | 0.2527  | real slide has spatial structure                                                 |
+| `moran/gen_mean`  | -0.0003 | generated ≈ 0 → **no spatial structure** (OT-CFM coords are random placeholders) |
+| `moran/corr`      | 0.4803  | per-gene Moran correlation real-vs-gen                                           |
+| `moran/mae`       | 0.2530  |                                                                                  |
 
 ### Cell-type classifier (`ct/*`, neutral 1.002-trained classifier)
 
-| Metric | Value | Notes |
-|---|---|---|
+| Metric        | Value  | Notes                                                                                                                   |
+| ------------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `ct/acc_real` | 0.5454 | classifier accuracy on **real** 1.001 niches (16-class, neighbourhood-only) — confirms the neutral classifier transfers |
-| `ct/acc_gen` | 0.2749 | accuracy on **generated** niches |
-| `ct/acc_gap` | 0.2705 | real − generated accuracy gap (lower is better) |
-| `ct/acc` | 0.3886 | label agreement between generated and paired-real niches |
-| `ct/f1` | 0.3623 | weighted-F1 of that agreement |
-| `ct/prop_kl` | 0.0943 | cell-type composition divergence (KL) |
-| `ct/prop_tv` | 0.1719 | total variation |
-| `ct/prop_jsd` | 0.0214 | Jensen–Shannon |
+| `ct/acc_gen`  | 0.2749 | accuracy on **generated** niches                                                                                        |
+| `ct/acc_gap`  | 0.2705 | real − generated accuracy gap (lower is better)                                                                         |
+| `ct/acc`      | 0.3886 | label agreement between generated and paired-real niches                                                                |
+| `ct/f1`       | 0.3623 | weighted-F1 of that agreement                                                                                           |
+| `ct/prop_kl`  | 0.0943 | cell-type composition divergence (KL)                                                                                   |
+| `ct/prop_tv`  | 0.1719 | total variation                                                                                                         |
+| `ct/prop_jsd` | 0.0214 | Jensen–Shannon                                                                                                          |
 
 **Reading.** The OT-CFM is an unconditional, expression-only baseline: it reproduces the rough
 expression marginals (moderate MMD/EMD) but is trivially separable from the real slide (`c2st ≈ 1`)
@@ -124,5 +124,4 @@ python -m paired_slides_eval.evaluate \
 
 *(`artifacts/otcfm/generated.h5ad` is the OT-CFM output produced by `generate` — which now writes to
 `artifacts/<generator>/generated.h5ad` by default:*
-`python -m paired_slides_eval.generate generator=otcfm target=$DATA/adata_..-1.001.h5ad
-checkpoint=../fm_mnist/outputs/cfm_mouse_pca5/ckpt_last.pt`*.)*
+`python -m paired_slides_eval.generate generator=otcfm target=$DATA/adata_..-1.001.h5ad checkpoint=../fm_mnist/outputs/cfm_mouse_pca5/ckpt_last.pt`*.)*

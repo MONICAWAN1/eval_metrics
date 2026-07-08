@@ -3,6 +3,7 @@
 Reads ``.h5ad`` / ``.npz`` / ``.pkl`` into a :class:`~paired_slides_eval.contract.GeneratedNiches`
 or :class:`~paired_slides_eval.contract.GeneratedSlide` — the inverse of
 :func:`paired_slides_eval.pipeline.io.write_generated`.
+
 """
 
 from __future__ import annotations
@@ -14,10 +15,12 @@ from paired_slides_eval.data.anndata import read_anndata
 
 
 def _generated_from_mapping(m) -> GeneratedNiches | GeneratedSlide:
-    """Build generated cells from an ``x``/``pos`` mapping (``.npz`` or an unpickled dict).
+    """Build generated cells from an ``x``/``pos`` mapping (``.npz`` or an
+    unpickled dict).
 
     Niche-shaped if ``x`` is 3-D ``(B, N, D)`` (optionally with ``gt_x``/``gt_pos``/``gt_ct``),
     else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``.
+
     """
     x = np.asarray(m["x"])
     if x.ndim == 3:
@@ -34,6 +37,7 @@ def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiche
     ``gt_ct``), else a flat ``GeneratedSlide`` from 2-D ``x``/``pos``.
     ``.pkl``: a generator result object (any object with a ``to_generated_niches`` method) or a
     dict with the same ``x``/``pos``[/``gt_*``] arrays as the ``.npz`` form.
+
     """
     if str(path).endswith(".h5ad"):
         adata = read_anndata(path)
@@ -56,7 +60,7 @@ def _load_generated(path: str, *, niche_key: str = "niche_id") -> GeneratedNiche
             f"Unrecognised generated .pkl contents ({type(obj).__name__}). Expected a "
             "GenerationResult, a GeneratedNiches/GeneratedSlide, or a dict with x/pos arrays. "
             "A preprocessed-slide pickle is a *real* slide — load it as a target with "
-            "TargetSlide.from_dataclass instead."
+            "TargetSlide.from_dataclass instead.",
         )
 
     return _generated_from_mapping(np.load(path))

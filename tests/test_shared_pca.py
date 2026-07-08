@@ -1,7 +1,9 @@
-"""Tests for the shared-PCA recipe transform, coord standardiser, and comparability guards.
+"""Tests for the shared-PCA recipe transform, coord standardiser, and
+comparability guards.
 
 Pure numpy/sklearn — runs on the dev box (no torch). The fixed-centroid acc_real test needs torch
 and is guarded by ``importorskip``.
+
 """
 
 from __future__ import annotations
@@ -19,7 +21,8 @@ from paired_slides_eval.data.shared_pca import (
 
 
 def _fit_recipe(counts, n_pcs):
-    """Mirror compute_pca + _normalize_features exactly, returning the pieces + whitened X_pca."""
+    """Mirror compute_pca + _normalize_features exactly, returning the pieces +
+    whitened X_pca."""
     totals = counts.sum(1)
     target_sum = float(np.median(totals[totals > 0]))
     logn = np.log1p(counts / totals[:, None] * target_sum)
@@ -29,7 +32,11 @@ def _fit_recipe(counts, n_pcs):
     xmean, xstd = x_unwhit.mean(0), x_unwhit.std(0)
     x_pca = (x_unwhit - xmean) / xstd
     spca = SharedGenePCA(
-        pcs=pcs, lognorm_mean=pca.mean_, xpca_mean=xmean, xpca_std=xstd, target_sum=target_sum
+        pcs=pcs,
+        lognorm_mean=pca.mean_,
+        xpca_mean=xmean,
+        xpca_std=xstd,
+        target_sum=target_sum,
     )
     return spca, x_pca
 
@@ -68,8 +75,12 @@ def test_apply_lognorm_false_skips_normalization():
     x_unwhit = (logn - pca.mean_) @ pcs
     xmean, xstd = x_unwhit.mean(0), x_unwhit.std(0)
     spca = SharedGenePCA(
-        pcs=pcs, lognorm_mean=pca.mean_, xpca_mean=xmean, xpca_std=xstd,
-        target_sum=1.0, apply_lognorm=False,
+        pcs=pcs,
+        lognorm_mean=pca.mean_,
+        xpca_mean=xmean,
+        xpca_std=xstd,
+        target_sum=1.0,
+        apply_lognorm=False,
     )
     got = spca.transform(logn)
     assert np.allclose(got, (x_unwhit - xmean) / xstd, atol=1e-5)
@@ -77,8 +88,12 @@ def test_apply_lognorm_false_skips_normalization():
 
 def test_align_genes_reorders_to_fit_panel():
     spca = SharedGenePCA(
-        pcs=np.eye(3), lognorm_mean=np.zeros(3), xpca_mean=np.zeros(3), xpca_std=np.ones(3),
-        target_sum=1.0, var_names=["g0", "g1", "g2"],
+        pcs=np.eye(3),
+        lognorm_mean=np.zeros(3),
+        xpca_mean=np.zeros(3),
+        xpca_std=np.ones(3),
+        target_sum=1.0,
+        var_names=["g0", "g1", "g2"],
     )
     genes_shuffled = np.array([[2.0, 0.0, 1.0]])  # in order g2, g0, g1
     aligned = spca.align_genes(genes_shuffled, ["g2", "g0", "g1"])
@@ -87,8 +102,12 @@ def test_align_genes_reorders_to_fit_panel():
 
 def test_align_genes_raises_on_missing_gene():
     spca = SharedGenePCA(
-        pcs=np.eye(2), lognorm_mean=np.zeros(2), xpca_mean=np.zeros(2), xpca_std=np.ones(2),
-        target_sum=1.0, var_names=["g0", "g1"],
+        pcs=np.eye(2),
+        lognorm_mean=np.zeros(2),
+        xpca_mean=np.zeros(2),
+        xpca_std=np.ones(2),
+        target_sum=1.0,
+        var_names=["g0", "g1"],
     )
     with pytest.raises(ValueError, match="missing fit genes"):
         spca.align_genes(np.zeros((1, 1)), ["g0"])
@@ -102,7 +121,8 @@ def test_coord_standardizer_roundtrip():
 
 
 class _FakeDS:
-    """Minimal stand-in for H5ADDatasetDataclass with just the fields the builders read."""
+    """Minimal stand-in for H5ADDatasetDataclass with just the fields the
+    builders read."""
 
     def __init__(self, **kw):
         self.__dict__.update(kw)
@@ -138,7 +158,8 @@ def test_coord_standardizer_from_dataclass():
 
 
 def test_target_from_dataclass_shared_pca_projects_and_standardizes():
-    """End-to-end (numpy): a shared-PCA target projects gene-space cells + standardises their coords."""
+    """End-to-end (numpy): a shared-PCA target projects gene-space cells +
+    standardises their coords."""
     from paired_slides_eval.contract import GeneratedSlide, TargetSlide
     from paired_slides_eval.reconcile import _standardize_generated_coords
 
@@ -182,37 +203,49 @@ def test_target_from_dataclass_shared_pca_projects_and_standardizes():
 
 
 def test_auto_coord_detection_and_reconcile():
-    """coords='auto' standardises raw generated coords and passes standardised ones through."""
+    """Coords='auto' standardises raw generated coords and passes standardised
+    ones through."""
     from paired_slides_eval.contract import GeneratedSlide, TargetSlide
     from paired_slides_eval.reconcile import _detect_coord_space, _reconcile_generated
 
     ct = CoordStandardizer(mean=np.array([100.0, 200.0]), std=np.array([10.0, 20.0]))
     rng = np.random.default_rng(0)
-    raw = rng.normal([100.0, 200.0], [10.0, 20.0], size=(500, 2))   # ~ target raw frame
-    standardized = rng.normal(0.0, 1.0, size=(500, 2))              # already ~ unit
+    raw = rng.normal([100.0, 200.0], [10.0, 20.0], size=(500, 2))  # ~ target raw frame
+    standardized = rng.normal(0.0, 1.0, size=(500, 2))  # already ~ unit
 
     assert _detect_coord_space(raw, ct) == "standardize"
     assert _detect_coord_space(standardized, ct) == "passthrough"
 
     target = TargetSlide(x=np.zeros((3, 4)), pos=np.zeros((3, 2)), coord_transform=ct)
 
-    out, notes = _reconcile_generated(GeneratedSlide(x=np.zeros((500, 4)), pos=raw), target, coords="auto")
+    out, notes = _reconcile_generated(
+        GeneratedSlide(x=np.zeros((500, 4)), pos=raw),
+        target,
+        coords="auto",
+    )
     assert np.allclose(out.pos.std(axis=0), 1.0, atol=0.3)  # mapped into the standardised frame
     assert notes and "standardize" in notes[0]
 
     out2, _ = _reconcile_generated(
-        GeneratedSlide(x=np.zeros((500, 4)), pos=standardized), target, coords="auto"
+        GeneratedSlide(x=np.zeros((500, 4)), pos=standardized),
+        target,
+        coords="auto",
     )
     assert np.allclose(out2.pos, standardized)  # already standardised -> passthrough
 
     # No coord frame on the target -> nothing to reconcile (legacy h5ad path)
     bare = TargetSlide(x=np.zeros((3, 4)), pos=np.zeros((3, 2)))
-    out3, notes3 = _reconcile_generated(GeneratedSlide(x=np.zeros((5, 4)), pos=np.zeros((5, 2))), bare, coords="auto")
+    out3, notes3 = _reconcile_generated(
+        GeneratedSlide(x=np.zeros((5, 4)), pos=np.zeros((5, 2))),
+        bare,
+        coords="auto",
+    )
     assert notes3 == []
 
 
 def test_from_dataclass_shared_pca_auto_falls_back_without_recipe():
-    """shared_pca='auto' attaches the transform iff the pickle carries the recipe (else pca=None)."""
+    """shared_pca='auto' attaches the transform iff the pickle carries the
+    recipe (else pca=None)."""
     from paired_slides_eval.contract import TargetSlide
 
     bare = _FakeDS(
@@ -224,7 +257,11 @@ def test_from_dataclass_shared_pca_auto_falls_back_without_recipe():
         timepoints_ordered=["A", "B"],
         timepoint_indices={"B": np.arange(4)},
         # no PCs / lognorm_* / stats recipe
-        PCs=None, lognorm_mean=None, lognorm_target_sum=None, var_names=None, stats={},
+        PCs=None,
+        lognorm_mean=None,
+        lognorm_target_sum=None,
+        var_names=None,
+        stats={},
     )
     target = TargetSlide.from_dataclass(bare, shared_pca="auto")
     assert target.pca is None and target.coord_transform is None  # graceful fallback, no raise
@@ -245,10 +282,22 @@ def test_fixed_reference_accuracy_is_model_independent():
     clf.output_dim = n_classes
 
     acc1 = fixed_reference_accuracy(
-        real_x, real_pos, real_ct, clf, spatial=False, n_centroids=50, seed=7
+        real_x,
+        real_pos,
+        real_ct,
+        clf,
+        spatial=False,
+        n_centroids=50,
+        seed=7,
     )
     acc2 = fixed_reference_accuracy(
-        real_x, real_pos, real_ct, clf, spatial=False, n_centroids=50, seed=7
+        real_x,
+        real_pos,
+        real_ct,
+        clf,
+        spatial=False,
+        n_centroids=50,
+        seed=7,
     )
     assert acc1 == acc2  # deterministic given (classifier, target, seed) — model-independent
     assert 0.0 <= acc1 <= 1.0

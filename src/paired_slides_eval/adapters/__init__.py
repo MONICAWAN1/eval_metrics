@@ -9,4 +9,5 @@ preprocessing. Adapters are selected and constructed from a Hydra config via ``_
 To add a model: place an adapter subpackage here with a ``BaseGenerator`` subclass that imports the
 model and returns a :class:`~paired_slides_eval.pipeline.run.GenerationOutput`, then add a matching
 ``configs/generator/<name>.yaml`` pointing ``_target_`` at the class.
+
 """

@@ -1,6 +1,8 @@
-"""The shared-space `Basis` — one definition of expression + coordinate transforms.
+"""The shared-space `Basis` — one definition of expression + coordinate
+transforms.
 
 Pure numpy: `from_dataclass`, `apply`, and `to_fm_npz` byte-identity to the legacy mapping.
+
 """
 
 import numpy as np

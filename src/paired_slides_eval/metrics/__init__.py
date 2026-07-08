@@ -5,16 +5,17 @@ that scores generated-vs-real and returns a flat ``{group/metric: value}`` dict 
 ``distribution_distance``, ``morans_compare``); and the *table* front door — :func:`metrics` /
 :func:`metrics_files` / :func:`compare` — returning a tidy ``pandas.DataFrame``. See
 :func:`paired_slides_eval.evaluate.evaluate` for the underlying suite.
+
 """
 
 from paired_slides_eval.metrics.c2st import c2st, c2st_metrics, c2st_significance
-from paired_slides_eval.metrics.metrics import compare, metrics, metrics_files
 from paired_slides_eval.metrics.c2st_nn import c2st_nn, c2st_nn_metrics
 from paired_slides_eval.metrics.classifier_gap import classifier_accuracy_gap
 from paired_slides_eval.metrics.concordance import cell_type_concordance
 from paired_slides_eval.metrics.distances import regression_metrics
 from paired_slides_eval.metrics.distribution import distribution_distance, mmd2_rbf, ot_distance
 from paired_slides_eval.metrics.expr_recon import expr_recon_gap, fixed_reference_mse
+from paired_slides_eval.metrics.metrics import compare, metrics, metrics_files
 from paired_slides_eval.metrics.morans import morans_compare, morans_i
 
 __all__ = [

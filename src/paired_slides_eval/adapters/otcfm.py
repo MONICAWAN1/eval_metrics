@@ -23,6 +23,7 @@ coordinate tail and un-standardizes it to real coordinates, so the spatial metri
 
 Selected with ``generator=otcfm`` (``configs/generator/otcfm.yaml``). Needs fm_mnist's ``fm`` package
 importable — either ``uv pip install -e ../fm_mnist`` or set ``fm_root`` to the fm_mnist repo path.
+
 """
 
 from __future__ import annotations
@@ -34,7 +35,8 @@ from paired_slides_eval.pipeline.run import GenerationOutput, from_generated_arr
 
 
 class OTCFMGenerator(BaseGenerator):
-    """Generate cells from an fm_mnist OT-CFM checkpoint and pair them with the reference slide.
+    """Generate cells from an fm_mnist OT-CFM checkpoint and pair them with the
+    reference slide.
 
     Construction parameters (from ``configs/generator/otcfm.yaml``):
         sample_n: number of cells to generate (0 -> match the reference cell count).
@@ -50,6 +52,7 @@ class OTCFMGenerator(BaseGenerator):
         device / seed: torch device and RNG seed.
         fm_root: path to the fm_mnist repo, prepended to ``sys.path`` so ``import fm`` works when
             fm_mnist is not pip-installed. ``None`` assumes ``fm`` is already importable.
+
     """
 
     def __init__(
@@ -89,7 +92,7 @@ class OTCFMGenerator(BaseGenerator):
         except ModuleNotFoundError as exc:  # pragma: no cover
             raise ModuleNotFoundError(
                 "fm_mnist's `fm` package is not importable. `uv pip install -e ../fm_mnist`, or set "
-                "`fm_root` in configs/generator/otcfm.yaml to the fm_mnist repo path."
+                "`fm_root` in configs/generator/otcfm.yaml to the fm_mnist repo path.",
             ) from exc
 
         from paired_slides_eval.data.anndata import read_anndata
@@ -123,7 +126,7 @@ class OTCFMGenerator(BaseGenerator):
                 raise ValueError(
                     "coord_mode='generate' but the checkpoint has no coord_dim — it was trained "
                     "expression-only. Retrain with `--spatial_key spatial`, or use coord_mode "
-                    "'reference'/'random'."
+                    "'reference'/'random'.",
                 )
             gen, coord_tail = gen[:, :-coord_dim], gen[:, -coord_dim:]
             if stats.get("coord_frame") == "shared":

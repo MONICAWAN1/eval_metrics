@@ -20,7 +20,12 @@ def test_morans_compare_keys(real_slide, generated_niches):
     gen_x = generated_niches["x"][:, 0, :]
     gen_pos = generated_niches["pos"][:, 0, :]
     out = morans_compare(
-        gen_x, gen_pos, real_slide["x"], real_slide["pos"], prefix="test", n_neighs=6
+        gen_x,
+        gen_pos,
+        real_slide["x"],
+        real_slide["pos"],
+        prefix="test",
+        n_neighs=6,
     )
     assert set(out) == {
         "test/moran/mae",

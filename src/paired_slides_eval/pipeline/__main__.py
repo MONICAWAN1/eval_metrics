@@ -1,4 +1,5 @@
-"""One-shot generate + evaluate entry point (Hydra): ``python -m paired_slides_eval.pipeline``.
+"""One-shot generate + evaluate entry point (Hydra): ``python -m
+paired_slides_eval.pipeline``.
 
 Selects a generation adapter from the ``generator`` config group, generates cells from a checkpoint,
 and runs the metric suite on them. For library use, call
@@ -12,6 +13,7 @@ Usage::
         classifier=classifier.ckpt out=results.csv
 
 Requires the ``[pipeline]`` extra (Hydra).
+
 """
 
 from __future__ import annotations

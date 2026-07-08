@@ -10,7 +10,8 @@ from paired_slides_eval.metrics.expr_recon import expr_recon_gap, fixed_referenc
 
 
 class _MeanNeighborRegressor(torch.nn.Module):
-    """Tiny regressor that predicts the centroid from the mean of its neighbours."""
+    """Tiny regressor that predicts the centroid from the mean of its
+    neighbours."""
 
     def __init__(self, n_pcs: int, n_neighbors: int = 2):
         super().__init__()

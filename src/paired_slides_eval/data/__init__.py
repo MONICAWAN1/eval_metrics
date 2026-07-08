@@ -4,6 +4,7 @@ Two layers live here: :mod:`paired_slides_eval.data.anndata` is the model-agnost
 IO that every metric uses (raw genes + ``obsm['spatial']``, optional PCA); ``dataclass`` below is
 the internal **niche pickle schema** shared by the classifier-training dataset and the NicheFlow
 adapter (it is not part of the user-facing AnnData input contract).
+
 """
 
 from paired_slides_eval.data.dataclass import (

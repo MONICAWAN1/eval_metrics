@@ -1,4 +1,5 @@
-"""Loading the NicheFlow processed `.pkl` format: target slide + generated cells."""
+"""Loading the NicheFlow processed `.pkl` format: target slide + generated
+cells."""
 
 import pickle
 
@@ -12,20 +13,33 @@ from paired_slides_eval.loaders import _load_generated
 
 @pytest.fixture
 def niche_dataclass(rng):
-    """A minimal `H5ADDatasetDataclass` (NicheFlow preprocessed pickle) with two slides A, B."""
+    """A minimal `H5ADDatasetDataclass` (NicheFlow preprocessed pickle) with two
+    slides A, B."""
     na, nb = 30, 40
     x = np.vstack([rng.random((na, 5)), rng.random((nb, 5))]).astype(np.float32)
     coords = np.vstack([rng.random((na, 2)), rng.random((nb, 2))]).astype(np.float32)
     ct = np.array((["T", "B", "T"] * 100)[: na + nb], dtype=object)
     return H5ADDatasetDataclass(
-        X_pca=x, coords=coords, ct=ct, PCs=np.zeros((5, 5)),
-        timepoints_ordered=["A", "B"], timepoint_column="slide",
+        X_pca=x,
+        coords=coords,
+        ct=ct,
+        PCs=np.zeros((5, 5)),
+        timepoints_ordered=["A", "B"],
+        timepoint_column="slide",
         timepoint_to_int={"A": 0, "B": 1},
         timepoint_indices={"A": np.arange(na), "B": np.arange(na, na + nb)},
-        ct_column="class", ct_ordered=["T", "B"], ct_to_int={"T": 0, "B": 1},
-        timepoint_neighboring_indices={}, timepoint_num_neighbors={},
-        subsampled_timepoint_idx={}, standardize_coordinates=True,
-        radius=0.15, dx=0.15, dy=0.2, stats={}, test_microenvs=0,
+        ct_column="class",
+        ct_ordered=["T", "B"],
+        ct_to_int={"T": 0, "B": 1},
+        timepoint_neighboring_indices={},
+        timepoint_num_neighbors={},
+        subsampled_timepoint_idx={},
+        standardize_coordinates=True,
+        radius=0.15,
+        dx=0.15,
+        dy=0.2,
+        stats={},
+        test_microenvs=0,
     )
 
 
@@ -60,16 +74,24 @@ def test_load_generated_pkl_flat_dict(rng, tmp_path):
 
 def test_load_generated_pkl_niche_dict(rng, tmp_path):
     p = tmp_path / "g.pkl"
-    p.write_bytes(pickle.dumps({
-        "x": rng.random((4, 6, 5)), "pos": rng.random((4, 6, 2)),
-        "gt_x": rng.random((4, 6, 5)), "gt_pos": rng.random((4, 6, 2)), "gt_ct": np.arange(4),
-    }))
+    p.write_bytes(
+        pickle.dumps(
+            {
+                "x": rng.random((4, 6, 5)),
+                "pos": rng.random((4, 6, 2)),
+                "gt_x": rng.random((4, 6, 5)),
+                "gt_pos": rng.random((4, 6, 2)),
+                "gt_ct": np.arange(4),
+            },
+        ),
+    )
     g = _load_generated(str(p))
     assert isinstance(g, GeneratedNiches) and g.gt_ct.shape == (4,)
 
 
 class _FakeGenerationResult:
-    """Module-level (so it pickles) stand-in for the NicheFlow adapter's GenerationResult."""
+    """Module-level (so it pickles) stand-in for the NicheFlow adapter's
+    GenerationResult."""
 
     def to_generated_niches(self):
         return GeneratedNiches(x=np.zeros((2, 3, 5)), pos=np.zeros((2, 3, 2)))

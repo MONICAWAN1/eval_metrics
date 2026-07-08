@@ -2,10 +2,10 @@ _target_: paired_slides_eval.classifier.task.CellTypeClassification
 
 net:
   _target_: paired_slides_eval.classifier.nets.SpatialCTClassifierNet
-  input_dim: ${data.n_pcs} # PCA components (gene-expression dim). The net is expression-only
+  input_dim: ${data.n_pcs}  # PCA components (gene-expression dim). The net is expression-only
                            # (coordinates only select the KNN neighbourhood), so no coord_dim.
   hidden_dim: 64
-  output_dim: ${data.n_classes} # The number of cell types
+  output_dim: ${data.n_classes}  # The number of cell types
   num_heads: 4
   # true (default): masked centroid — predict the type from the neighbourhood only, so the
   # metric measures spatial coherence and cannot take the x0 -> type shortcut (no leak of
@@ -30,4 +30,4 @@ lr_scheduler:
 lr_scheduler_args:
   monitor: val/f1
 
-plot_callbacks: True
+plot_callbacks: true

@@ -53,6 +53,7 @@ class SpatialH5ADCTDataset(Dataset):
     ``target`` selects the supervision: ``"ct"`` (default) gives the centroid's cell-type label;
     ``"expr"`` gives the centroid's expression vector, turning this into a **masked-centroid
     expression regression** dataset (predict the masked centroid's expression from its neighbours).
+
     """
 
     def __init__(self, filepath: str, n_neighbors: int = 10, target: str = "ct") -> None:
@@ -78,7 +79,8 @@ class SpatialH5ADCTDataset(Dataset):
             indices = ds.timepoint_indices[timepoint]
             self.x_by_t[timepoint] = torch.as_tensor(expr[indices], dtype=torch.float32)
             self.ct_by_t[timepoint] = torch.as_tensor(
-                ct_to_int_vec(ds.ct[indices]), dtype=torch.long
+                ct_to_int_vec(ds.ct[indices]),
+                dtype=torch.long,
             )
             # (n_centroids, k+1) KNN local indices on this slide's coords (self at column 0).
             neighbor_idx = knn_indices(np.asarray(ds.coords)[indices], self.n_neighbors)

@@ -1,4 +1,5 @@
-"""Build the niche dataclass from raw AnnData slides — port of ``scripts/prepare_abca``.
+"""Build the niche dataclass from raw AnnData slides — port of
+``scripts/prepare_abca``.
 
 Two raw ``.h5ad`` slides become the source (``A``) and target (``B``) of the flow. We compute one
 **shared PCA** on the concatenated pair (``normalize_total -> log1p -> PCA``, exactly as
@@ -8,6 +9,7 @@ into the same PCA basis + label space so a classifier trained on it applies to t
 
 No global alignment / PASTE2: coordinates are standardized per slide, matching the original
 unaligned NicheFlow path.
+
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ def _load_two_slides(slide_a, slide_b, slide_column: str):
 
     Requires an identical gene panel across the two files (same ``var_names`` in the same order)
     so a single shared PCA basis is meaningful. (Port of ``prepare_abca._load_two_slides``.)
+
     """
     import anndata as ad
 
@@ -35,7 +38,7 @@ def _load_two_slides(slide_a, slide_b, slide_column: str):
     if not a.var_names.equals(b.var_names):
         raise ValueError(
             "The two slides must share the exact same gene panel (var_names) in the same order. "
-            f"Got {a.n_vars} vs {b.n_vars} genes; identical={a.var_names.equals(b.var_names)}."
+            f"Got {a.n_vars} vs {b.n_vars} genes; identical={a.var_names.equals(b.var_names)}.",
         )
 
     a.obs[slide_column] = SLIDE_A
@@ -46,13 +49,15 @@ def _load_two_slides(slide_a, slide_b, slide_column: str):
 
 
 def compute_pca(adata, n_pcs: int) -> float:
-    """``normalize_total -> log1p -> PCA``, filling ``obsm['X_pca']`` and ``varm['PCs']``.
+    """``normalize_total -> log1p -> PCA``, filling ``obsm['X_pca']`` and
+    ``varm['PCs']``.
 
     Port of ``prepare_abca._compute_pca``. Raw counts are stashed in ``layers['counts']`` first;
     PCA is fit on the concatenated data so both slides share one PC basis. Returns the effective
     ``normalize_total`` target_sum (the median of the *fit* data's per-cell totals, the value
     ``scanpy`` uses when ``target_sum=None``) so the exact same normalisation can be replayed on new
     cells projected into this basis (see :class:`~paired_slides_eval.data.shared_pca.SharedGenePCA`).
+
     """
     import scanpy as sc
 
@@ -81,11 +86,13 @@ def preprocess_pair(
     dy: float = 0.2,
     device: str = "cpu",
 ) -> tuple[H5ADDatasetDataclass, H5ADPreprocessor]:
-    """Preprocess a (source, target) pair of raw slides into the niche dataclass.
+    """Preprocess a (source, target) pair of raw slides into the niche
+    dataclass.
 
     Returns ``(dataclass, preprocessor)`` — the preprocessor is returned so its ``ct_ordered`` and
     ``X_pca`` stats can be reused to project a classifier slide (see
     :func:`preprocess_classifier_slide`). ``timepoints_ordered`` is ``["A", "B"]`` (source, target).
+
     """
     adata = _load_two_slides(source_h5ad, target_h5ad, slide_column)
     target_sum = compute_pca(adata, n_pcs)
@@ -122,11 +129,13 @@ def preprocess_classifier_slide(
     dy: float = 0.2,
     device: str = "cpu",
 ) -> H5ADDatasetDataclass:
-    """Project a held-out classifier slide into the pair's PCA basis + label space.
+    """Project a held-out classifier slide into the pair's PCA basis + label
+    space.
 
     Reuses ``base_preprocessor``'s log-normalised mean / ``PCs`` / ``ct_ordered`` / ``X_pca`` stats
     so a classifier trained here applies to the target — i.e. the probe trains in the same shared
     whitened ``X_pca`` the models are scored in.
+
     """
     import anndata as ad
     import scanpy as sc

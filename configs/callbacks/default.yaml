@@ -8,16 +8,16 @@ defaults:
 
 model_checkpoint:
   dirpath: ${paths.output_dir}/checkpoints
-  filename: "epoch_{epoch:03d}"
-  monitor: "val/nn_class/f1"
-  mode: "max"
-  save_last: True
-  auto_insert_metric_name: False
+  filename: epoch_{epoch:03d}
+  monitor: val/nn_class/f1
+  mode: max
+  save_last: true
+  auto_insert_metric_name: false
 
 early_stopping:
-  monitor: "val/nn_class/f1"
+  monitor: val/nn_class/f1
   patience: 100
-  mode: "max"
+  mode: max
 
 model_summary:
   max_depth: -1

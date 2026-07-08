@@ -10,6 +10,7 @@ Faithful to the NicheFlow original, **minus the global-alignment paths** (PASTE2
 standardized per slide and no cross-slide coupling is precomputed (generation falls back to its
 original minibatch-OT pairing). The ``external_*`` arguments are kept — they let a held-out
 classifier-training slide reuse the source+target label vocabulary and ``X_pca`` scaling.
+
 """
 
 from __future__ import annotations
@@ -152,7 +153,9 @@ class H5ADPreprocessor:
 
             # Fix the number of nodes per graph.
             num_neighbors, C_t_argsorted = chunked_cdist_sum_argsort(  # noqa: N806
-                coords=coords_t, radius=self.radius, chunk_size=self.chunk_size
+                coords=coords_t,
+                radius=self.radius,
+                chunk_size=self.chunk_size,
             )
             unique, counts = torch.unique(num_neighbors, return_counts=True)
 
@@ -175,7 +178,7 @@ class H5ADPreprocessor:
         subsample_iter = tqdm(self.timepoints_ordered)
         for timepoint in subsample_iter:
             subsample_iter.set_description(
-                f"Subsampling centroids t='{timepoint}' | dx={self.dx} | dy={self.dy}"
+                f"Subsampling centroids t='{timepoint}' | dx={self.dx} | dy={self.dy}",
             )
             gt_indices = self.timepoint_indices[timepoint]
             gt = self.coords[gt_indices]
@@ -186,14 +189,14 @@ class H5ADPreprocessor:
             # Validation
             subgraph_indices = np.unique(
                 np.concatenate(
-                    [self.timepoint_neighboring_indices[timepoint][idx] for idx in pos_idx]
-                )
+                    [self.timepoint_neighboring_indices[timepoint][idx] for idx in pos_idx],
+                ),
             )
             diff = np.abs(len(gt) - len(subgraph_indices))
             if diff > MIN_COVERAGE:
                 _logger.warning(
                     "You should change the values for `dx` and `dy`."
-                    + f"GT: {len(gt)} | Microenvironment cover: {len(subgraph_indices)}"
+                    + f"GT: {len(gt)} | Microenvironment cover: {len(subgraph_indices)}",
                 )
 
         # Fix nodes by upsampling
@@ -209,11 +212,12 @@ class H5ADPreprocessor:
                 choices = [i for i in range(length) if i not in subsampled_indices]
                 choices = np.random.choice(choices, n_upsample, replace=False)
                 self.subsampled_timepoint_idx[timepoint] = np.concatenate(
-                    [self.subsampled_timepoint_idx[timepoint], choices]
+                    [self.subsampled_timepoint_idx[timepoint], choices],
                 )
 
     def to_dataclass(self) -> H5ADDatasetDataclass:
-        """Pack the preprocessed arrays into the standalone ``H5ADDatasetDataclass``."""
+        """Pack the preprocessed arrays into the standalone
+        ``H5ADDatasetDataclass``."""
         return H5ADDatasetDataclass(
             X_pca=self.X_pca,
             coords=self.coords,

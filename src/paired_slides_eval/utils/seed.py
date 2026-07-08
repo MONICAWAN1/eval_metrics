@@ -8,8 +8,9 @@ from omegaconf import DictConfig
 def set_seed(config: DictConfig) -> np.random.Generator:
     """Set seed for RNGs in pytorch, numpy and python.random.
 
-    The seed is a big int that wandb converts into a float, destroying it, so we store it as a
-    string instead.
+    The seed is a big int that wandb converts into a float, destroying it, so we
+    store it as a string instead.
+
     """
     big_seed = int(config.seed) if config.seed is not None else None
     big_seed, rng = manual_seed(big_seed)

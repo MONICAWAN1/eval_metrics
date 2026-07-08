@@ -1,9 +1,11 @@
-"""Train a spatial cell-type classifier on a preprocessed slide, programmatically.
+"""Train a spatial cell-type classifier on a preprocessed slide,
+programmatically.
 
 A thin wrapper over the local classifier stack (``SpatialH5ADCTDataset`` +
 ``CellTypeClassification`` + a Lightning ``Trainer``) so the pipeline can train the neutral
 classifier from the classifier-slide dataclass without the Hydra CLI. The full Hydra training
 entry point (``python -m paired_slides_eval.classifier.train``) still exists for configured runs.
+
 """
 
 from __future__ import annotations
@@ -27,10 +29,12 @@ def train_spatial_classifier(
     accelerator: str = "auto",
     seed: int = 2025,
 ):
-    """Train a ``SpatialCTClassifierNet`` on ``clf_dataclass`` and return the frozen net.
+    """Train a ``SpatialCTClassifierNet`` on ``clf_dataclass`` and return the
+    frozen net.
 
     The returned net carries ``.n_neighbors`` (the effective microenvironment size) so the
     classifier metrics rebuild identically sized niches.
+
     """
     import lightning as L
     import torch

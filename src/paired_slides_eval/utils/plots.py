@@ -15,7 +15,13 @@ def render_figure(fig: Figure) -> Image.Image:
     buf = BytesIO()
     fig.savefig(buf, **{"format": "rgba"})
     return Image.frombuffer(
-        "RGBA", fig.canvas.get_width_height(), buf.getbuffer(), "raw", "RGBA", 0, 1
+        "RGBA",
+        fig.canvas.get_width_height(),
+        buf.getbuffer(),
+        "raw",
+        "RGBA",
+        0,
+        1,
     )
 
 

@@ -9,15 +9,15 @@ also runs (the niches carry cell-for-cell matched ground truth).
 
 ## Setup
 
-| Item | Value |
-|---|---|
-| Model | NicheFlow CFM, `ckpts/NicheFlow_CFM_ABCA.ckpt` — trained on **1.024 → 1.025** (aligned pair, same mouse) |
-| Source slide | `adata_Zhuang_Zhuang-ABCA-1.024.h5ad` |
-| Target slide | `adata_Zhuang_Zhuang-ABCA-1.025.h5ad` (9962 cells; 20 cell types over the 1.024∪1.025 vocabulary) |
-| Generated cells | `artifacts/nicheflow/generated.h5ad` — **513 niches × 68 points** (niche-shaped, with paired real ground truth) |
-| Classifier-training slide | `adata_Zhuang_Zhuang-ABCA-1.026.h5ad` — nearby serial section, same mouse (1 out-of-vocabulary cell dropped) |
-| Shared feature space | NicheFlow's shared whitened PCA on source+target, **50 PCs**; per-slide standardized coordinates + standardized `X_pca` (the space the flow trained in) |
-| Classifier | `SpatialCTClassifierNet` (Set-Transformer, masked centroid), `coord_dim=2`, 20 classes — trained in-process on 1.026 via the adapter's `classifier_h5ad` mechanism |
+| Item                      | Value                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Model                     | NicheFlow CFM, `ckpts/NicheFlow_CFM_ABCA.ckpt` — trained on **1.024 → 1.025** (aligned pair, same mouse)                                                           |
+| Source slide              | `adata_Zhuang_Zhuang-ABCA-1.024.h5ad`                                                                                                                              |
+| Target slide              | `adata_Zhuang_Zhuang-ABCA-1.025.h5ad` (9962 cells; 20 cell types over the 1.024∪1.025 vocabulary)                                                                  |
+| Generated cells           | `artifacts/nicheflow/generated.h5ad` — **513 niches × 68 points** (niche-shaped, with paired real ground truth)                                                    |
+| Classifier-training slide | `adata_Zhuang_Zhuang-ABCA-1.026.h5ad` — nearby serial section, same mouse (1 out-of-vocabulary cell dropped)                                                       |
+| Shared feature space      | NicheFlow's shared whitened PCA on source+target, **50 PCs**; per-slide standardized coordinates + standardized `X_pca` (the space the flow trained in)            |
+| Classifier                | `SpatialCTClassifierNet` (Set-Transformer, masked centroid), `coord_dim=2`, 20 classes — trained in-process on 1.026 via the adapter's `classifier_h5ad` mechanism |
 
 Everything (generated cells, target, and classifier-training slide) lives in NicheFlow's **shared
 standardized `X_pca`** space — the model's native representation. The classifier slide (1.026) is
@@ -36,57 +36,57 @@ All groups ran (none skipped): the niche-shaped output supplies matched ground t
 
 ### Distribution / two-sample (expression + position)
 
-| Metric | Value | Notes |
-|---|---|---|
-| `c2st/acc` | 0.9330 | real-vs-generated classifier accuracy (joint expr+pos) |
-| `c2st/auc` | 0.9808 | still separable, but below the OT-CFM baseline's ~1.0 |
-| `c2st/pos_acc` | 0.6937 | position-only C2ST |
-| `mmd2/x` | 0.0325 | MMD² on expression |
-| `mmd2/pos` | 0.0139 | MMD² on coordinates |
-| `ot_w1/x` | 7.2282 | Wasserstein-1, expression |
-| `ot_w2/x` | 7.3216 | Wasserstein-2, expression |
-| `ot_w1/pos` | 0.2753 | Wasserstein-1, coordinates |
-| `ot_w2/pos` | 0.3347 | Wasserstein-2, coordinates |
+| Metric         | Value  | Notes                                                  |
+| -------------- | ------ | ------------------------------------------------------ |
+| `c2st/acc`     | 0.9330 | real-vs-generated classifier accuracy (joint expr+pos) |
+| `c2st/auc`     | 0.9808 | still separable, but below the OT-CFM baseline's ~1.0  |
+| `c2st/pos_acc` | 0.6937 | position-only C2ST                                     |
+| `mmd2/x`       | 0.0325 | MMD² on expression                                     |
+| `mmd2/pos`     | 0.0139 | MMD² on coordinates                                    |
+| `ot_w1/x`      | 7.2282 | Wasserstein-1, expression                              |
+| `ot_w2/x`      | 7.3216 | Wasserstein-2, expression                              |
+| `ot_w1/pos`    | 0.2753 | Wasserstein-1, coordinates                             |
+| `ot_w2/pos`    | 0.3347 | Wasserstein-2, coordinates                             |
 
 ### Regression (matched ground truth, niche-shaped)
 
-| Metric | Value | Notes |
-|---|---|---|
-| `x/mae` | 1.0725 | per-cell expression error vs matched real niche |
-| `x/mse` | 1.9412 | |
-| `pos/mae` | 0.4997 | per-cell coordinate error |
-| `pos/mse` | 0.3925 | |
+| Metric    | Value  | Notes                                           |
+| --------- | ------ | ----------------------------------------------- |
+| `x/mae`   | 1.0725 | per-cell expression error vs matched real niche |
+| `x/mse`   | 1.9412 |                                                 |
+| `pos/mae` | 0.4997 | per-cell coordinate error                       |
+| `pos/mse` | 0.3925 |                                                 |
 
 ### Geometry (point-set distances)
 
-| Metric | Value |
-|---|---|
+| Metric     | Value  |
+| ---------- | ------ |
 | `psd/mean` | 0.0232 |
-| `psd/max` | 0.3620 |
+| `psd/max`  | 0.3620 |
 | `spd/mean` | 0.0619 |
-| `spd/max` | 0.9022 |
+| `spd/max`  | 0.9022 |
 
 ### Moran's I (spatial autocorrelation)
 
-| Metric | Value | Notes |
-|---|---|---|
-| `moran/real_mean` | 0.1887 | real slide spatial structure |
-| `moran/gen_mean` | 0.0816 | generated **carries spatial structure** (vs ≈0 for the aspatial OT-CFM) |
-| `moran/corr` | 0.6838 | per-gene Moran correlation real-vs-gen |
-| `moran/mae` | 0.1248 | |
+| Metric            | Value  | Notes                                                                   |
+| ----------------- | ------ | ----------------------------------------------------------------------- |
+| `moran/real_mean` | 0.1887 | real slide spatial structure                                            |
+| `moran/gen_mean`  | 0.0816 | generated **carries spatial structure** (vs ≈0 for the aspatial OT-CFM) |
+| `moran/corr`      | 0.6838 | per-gene Moran correlation real-vs-gen                                  |
+| `moran/mae`       | 0.1248 |                                                                         |
 
 ### Cell-type classifier (`ct/*`, neutral 1.026-trained classifier)
 
-| Metric | Value | Notes |
-|---|---|---|
+| Metric        | Value  | Notes                                                                       |
+| ------------- | ------ | --------------------------------------------------------------------------- |
 | `ct/acc_real` | 0.2476 | classifier accuracy on **real** 1.025 niches (20-class, neighbourhood-only) |
-| `ct/acc_gen` | 0.3002 | accuracy on **generated** niches (vs the paired real centroid's true label) |
-| `ct/acc_gap` | 0.0526 | `|acc_real − acc_gen|` — small gap → generated niches are about as "classifiable" as real |
-| `ct/acc` | 0.4191 | label agreement between generated and paired-real niches |
-| `ct/f1` | 0.3797 | weighted-F1 of that agreement |
-| `ct/prop_kl` | 0.5430 | cell-type composition divergence (KL) |
-| `ct/prop_tv` | 0.2125 | total variation |
-| `ct/prop_jsd` | 0.0614 | Jensen–Shannon |
+| `ct/acc_gen`  | 0.3002 | accuracy on **generated** niches (vs the paired real centroid's true label) |
+| `ct/acc_gap`  | 0.0526 | \`                                                                          |
+| `ct/acc`      | 0.4191 | label agreement between generated and paired-real niches                    |
+| `ct/f1`       | 0.3797 | weighted-F1 of that agreement                                               |
+| `ct/prop_kl`  | 0.5430 | cell-type composition divergence (KL)                                       |
+| `ct/prop_tv`  | 0.2125 | total variation                                                             |
+| `ct/prop_jsd` | 0.0614 | Jensen–Shannon                                                              |
 
 **Reading.** NicheFlow CFM generates **niche-shaped cells with genuine spatial structure**
 (`moran/gen_mean ≈ 0.08` vs the real `0.19`, Moran corr `0.68`) and low expression-distribution

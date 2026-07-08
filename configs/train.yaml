@@ -4,16 +4,14 @@ defaults:
   - data: ct_abca
   - model: classifier
   - callbacks: default
-  - logger: null
+  - logger:
   - trainer: gpu
   - paths: default
   - hydra: default
-  - experiment: null
+  - experiment:
 
-task_name: "train"
-
-train: True
-test: True
-
-ckpt_path: null
+task_name: train
+train: true
+test: true
+ckpt_path:
 seed: 2025

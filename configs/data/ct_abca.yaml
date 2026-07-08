@@ -1,5 +1,4 @@
-defaults:
-  - ct_base
+defaults: [ct_base]
 
 datamodule:
   # The NEUTRAL classifier trains on a held-out same-mouse slide (neither source nor target),

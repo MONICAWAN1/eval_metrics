@@ -1,4 +1,5 @@
-"""The NicheFlow implementation of the :class:`~paired_slides_eval.pipeline.run.Generator` contract.
+"""The NicheFlow implementation of the
+:class:`~paired_slides_eval.pipeline.run.Generator` contract.
 
 ``nicheflow_generator`` is a drop-in ``generator=`` for
 :func:`paired_slides_eval.pipeline.run.run_pipeline`. It does the model-specific work the generic
@@ -12,6 +13,7 @@ pipeline deliberately knows nothing about:
 
 Everything here imports ``nicheflow`` and/or ``torch``/``scanpy``; the rest of the package does
 not. Needs the ``[pipeline]`` extra (``pip install -e ../nicheflow_mba``).
+
 """
 
 from __future__ import annotations
@@ -29,11 +31,13 @@ from paired_slides_eval.pipeline.run import GenerationOutput
 
 
 def target_from_dataclass(ds, timepoint: str, n_pcs: int | None = None) -> TargetSlide:
-    """Build a ``TargetSlide`` from a preprocessed niche dataclass and a timepoint.
+    """Build a ``TargetSlide`` from a preprocessed niche dataclass and a
+    timepoint.
 
     The generated cells live in this dataclass's **standardized ``X_pca``** space, so the real
     target must come from the same dataclass (not raw genes) for the spaces to match. Slices the
     timepoint's cells and maps cell-type labels to ints.
+
     """
     cells = np.asarray(ds.timepoint_indices[timepoint])
     x = np.asarray(ds.X_pca[cells])
@@ -68,6 +72,7 @@ class NicheFlowGenerator(BaseGenerator):
         classifier_h5ad: held-out slide to train the spatial classifier on (enables ``ct/*``).
         classifier_ckpt: load a pre-trained spatial classifier instead of training one.
         classifier_train_kwargs: extra keyword arguments for classifier training.
+
     """
 
     def __init__(
@@ -144,12 +149,15 @@ class NicheFlowGenerator(BaseGenerator):
         )
 
         return GenerationOutput(
-            target=target_slide, generated=gen_result.to_generated_niches(), classifier=classifier
+            target=target_slide,
+            generated=gen_result.to_generated_niches(),
+            classifier=classifier,
         )
 
 
 def nicheflow_generator(*, source, target, checkpoint, **kwargs) -> GenerationOutput:
-    """Functional wrapper around :class:`NicheFlowGenerator` (kept for the Python API)."""
+    """Functional wrapper around :class:`NicheFlowGenerator` (kept for the
+    Python API)."""
     return NicheFlowGenerator(**kwargs)(source=source, target=target, checkpoint=checkpoint)
 
 
@@ -167,7 +175,8 @@ def _resolve_classifier(
     device,
     train_kwargs,
 ):
-    """Load a classifier checkpoint, or train one on the projected classifier slide, or ``None``."""
+    """Load a classifier checkpoint, or train one on the projected classifier
+    slide, or ``None``."""
     if classifier_ckpt is not None:
         from paired_slides_eval.probes import build_spatial_classifier
 

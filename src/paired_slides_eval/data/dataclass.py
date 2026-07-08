@@ -6,6 +6,7 @@ This is a verbatim port of ``nicheflow.preprocessing.h5ad_dataset_type``. The me
 per-timepoint cell indices, the precomputed neighbour graph, and the grid subsample. Only the
 schema + loader are needed here; the scanpy-based builder (``h5ad_preprocessor``) is *not*
 ported, because evaluation reuses an existing ``.pkl`` rather than re-deriving it.
+
 """
 
 import pickle

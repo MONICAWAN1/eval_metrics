@@ -13,6 +13,7 @@ Usage::
 
 The written file uses the layout the evaluator reads, so the generated cells can be scored with
 ``python -m paired_slides_eval.evaluate``. This module requires the ``[pipeline]`` extra (Hydra).
+
 """
 
 from __future__ import annotations

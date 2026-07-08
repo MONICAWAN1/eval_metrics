@@ -3,6 +3,7 @@
 Run as ``python -m paired_slides_eval.cli`` (or, equivalently, ``python -m paired_slides_eval.evaluate``,
 which forwards here). A thin argparse wrapper over
 :func:`paired_slides_eval.evaluate.evaluate_files`.
+
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ def main() -> None:
     import os
 
     ap = argparse.ArgumentParser(
-        description="Run the metric suite on a (target slide, generated cells) pair."
+        description="Run the metric suite on a (target slide, generated cells) pair.",
     )
     ap.add_argument(
         "--target",
@@ -34,14 +35,20 @@ def main() -> None:
         "regressor is given).",
     )
     ap.add_argument(
-        "--classifier", default=None, help="optional classifier .ckpt (enables the ct/* groups)"
+        "--classifier",
+        default=None,
+        help="optional classifier .ckpt (enables the ct/* groups)",
     )
     ap.add_argument(
-        "--regressor", default=None, help="optional expression-regressor .ckpt (enables recon)"
+        "--regressor",
+        default=None,
+        help="optional expression-regressor .ckpt (enables recon)",
     )
     ap.add_argument("--out", default=None, help="optional path to write a metric,value CSV")
     ap.add_argument(
-        "--expr_key", default=None, help="obsm/layers key for expression (default: adata.X)"
+        "--expr_key",
+        default=None,
+        help="obsm/layers key for expression (default: adata.X)",
     )
     ap.add_argument("--spatial_key", default="spatial", help="obsm key for coordinates")
     ap.add_argument("--ct_key", default=None, help="obs column with cell types")
@@ -77,7 +84,10 @@ def main() -> None:
         "model-independent sample of real target centroids — use for cross-model comparison tables)",
     )
     ap.add_argument(
-        "--ct_real_n", type=int, default=2000, help="centroids sampled when --ct_real_reference fixed"
+        "--ct_real_n",
+        type=int,
+        default=2000,
+        help="centroids sampled when --ct_real_reference fixed",
     )
     ap.add_argument(
         "--flat_pairing",

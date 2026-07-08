@@ -24,7 +24,12 @@ def test_c2st_metrics_keys(real_slide, generated_niches):
     gen_x = generated_niches["x"].reshape(-1, generated_niches["x"].shape[-1])
     gen_pos = generated_niches["pos"].reshape(-1, 2)
     out = c2st_metrics(
-        real_slide["x"], real_slide["pos"], gen_x, gen_pos, prefix="test", n_folds=3
+        real_slide["x"],
+        real_slide["pos"],
+        gen_x,
+        gen_pos,
+        prefix="test",
+        n_folds=3,
     )
     assert set(out) == {
         "test/c2st/acc",

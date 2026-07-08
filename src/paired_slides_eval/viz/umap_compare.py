@@ -1,4 +1,5 @@
-"""UMAP overlay of generated vs target cells — a qualitative complement to the metric suite.
+"""UMAP overlay of generated vs target cells — a qualitative complement to the
+metric suite.
 
 A single UMAP is fit **once on the target slide's shared whitened ``X_pca(50)``** and every model's
 generated cells are projected through that frozen embedding, so all panels share one coordinate
@@ -8,6 +9,7 @@ panel shows whether a model's cells fall onto the target's populated cell-type r
 
 Reads a preprocessed pair ``.pkl`` (the eval target, in ``X_pca(50)``) and each model's generated
 ``.h5ad`` — the same inputs ``evaluate`` consumes. Pure ``umap`` + ``matplotlib``.
+
 """
 
 from __future__ import annotations
@@ -26,7 +28,8 @@ def umap_compare(
     point_size: float = 3.0,
     alpha: float = 0.5,
 ):
-    """Fit UMAP on the target and overlay each model's generated cells; return the figure.
+    """Fit UMAP on the target and overlay each model's generated cells; return
+    the figure.
 
     Args:
         pair_pkl: preprocessed pair ``.pkl`` (the eval target, carrying ``X_pca`` + ``ct`` labels).
@@ -34,6 +37,7 @@ def umap_compare(
         out_path: if given, save the figure there (e.g. ``reports/umap_compare.png``).
         seed / n_neighbors / min_dist: UMAP fit controls (``seed`` fixes the layout).
         point_size / alpha: scatter styling (lower both for dense "all cells" plots).
+
     """
     import matplotlib.pyplot as plt
     import umap
@@ -53,7 +57,10 @@ def umap_compare(
 
     # Fit UMAP ONCE on the target; every model is transformed through this frozen embedding.
     reducer = umap.UMAP(
-        n_neighbors=n_neighbors, min_dist=min_dist, random_state=seed, n_components=2
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        random_state=seed,
+        n_components=2,
     ).fit(target_x)
     target_emb = reducer.embedding_
 
@@ -83,12 +90,22 @@ def umap_compare(
 
         # Target = circles coloured by true cell type; generated = grey triangles on top.
         ax.scatter(
-            target_emb[:, 0], target_emb[:, 1], s=point_size, alpha=alpha, linewidths=0,
-            marker="o", c=[colors[c] for c in target_ct],
+            target_emb[:, 0],
+            target_emb[:, 1],
+            s=point_size,
+            alpha=alpha,
+            linewidths=0,
+            marker="o",
+            c=[colors[c] for c in target_ct],
         )
         ax.scatter(
-            gen_emb[:, 0], gen_emb[:, 1], s=point_size, alpha=alpha, linewidths=0,
-            marker="^", color="0.55",
+            gen_emb[:, 0],
+            gen_emb[:, 1],
+            s=point_size,
+            alpha=alpha,
+            linewidths=0,
+            marker="^",
+            color="0.55",
         )
         ax.set_title(f"{name}   (target n={len(target_x)}, gen n={len(gen_x)})")
         ax.set_xticks([])
@@ -108,8 +125,12 @@ def umap_compare(
         Line2D([], [], marker="^", linestyle="", markersize=7, color="0.55", label="generated"),
     ]
     fig.legend(
-        handles=shape_handles + ct_handles, loc="center left", bbox_to_anchor=(1.0, 0.5),
-        fontsize=8, frameon=False, title="markers / cell types",
+        handles=shape_handles + ct_handles,
+        loc="center left",
+        bbox_to_anchor=(1.0, 0.5),
+        fontsize=8,
+        frameon=False,
+        title="markers / cell types",
     )
     fig.suptitle("UMAP: generated vs target (shared X_pca(50), fit on target)", fontsize=13)
     fig.tight_layout(rect=(0, 0, 0.86, 0.97))

@@ -1,4 +1,5 @@
-"""Smoke test the NicheFlow adapter preprocessing (needs torch + scanpy; skips otherwise)."""
+"""Smoke test the NicheFlow adapter preprocessing (needs torch + scanpy; skips
+otherwise)."""
 
 import pytest
 

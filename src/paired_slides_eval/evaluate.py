@@ -70,7 +70,8 @@ def evaluate(
     recon_real_reference: str = "fixed",
     recon_real_n: int = 2000,
 ) -> dict:
-    """Compute every applicable metric for ``generated`` vs. ``target`` and return a flat dict.
+    """Compute every applicable metric for ``generated`` vs. ``target`` and
+    return a flat dict.
 
     Groups: ``regression`` (needs ``generated.gt_*``), ``distribution`` (MMD/EMD), ``c2st``
     (per-cell joint + expression-only), ``c2st_nn`` (forgiving nearest-neighbour two-sample test
@@ -101,6 +102,7 @@ def evaluate(
 
     ``recon_real_reference`` similarly controls ``recon/mse_real``; it defaults to ``"fixed"`` so the
     reconstruction gap uses a model-independent real-target baseline.
+
     """
     out: dict[str, float] = {}
     skipped: list[str] = []
@@ -112,12 +114,16 @@ def evaluate(
         ):
             out.update(
                 regression_metrics(
-                    generated.x, generated.gt_x, generated.pos, generated.gt_pos, prefix=prefix
-                )
+                    generated.x,
+                    generated.gt_x,
+                    generated.pos,
+                    generated.gt_pos,
+                    prefix=prefix,
+                ),
             )
         else:
             skipped.append(
-                "regression (needs niche-shaped `GeneratedNiches` with matched `gt_x`/`gt_pos`)"
+                "regression (needs niche-shaped `GeneratedNiches` with matched `gt_x`/`gt_pos`)",
             )
 
     if "distribution" in groups:
@@ -131,7 +137,7 @@ def evaluate(
                 mmd_max_n=mmd_max_n,
                 ot_max_n=ot_max_n,
                 seed=seed,
-            )
+            ),
         )
 
     if "c2st" in groups:
@@ -146,7 +152,7 @@ def evaluate(
                 n_folds=c2st_n_folds,
                 n_perm=c2st_n_perm,
                 seed=seed,
-            )
+            ),
         )
 
     if "c2st_nn" in groups:
@@ -162,7 +168,7 @@ def evaluate(
                 max_n=c2st_max_n,
                 spatial_k=c2st_nn_k,
                 seed=seed,
-            )
+            ),
         )
 
     if "moran" in groups:
@@ -177,7 +183,7 @@ def evaluate(
                 prefix=prefix,
                 n_neighs=moran_n_neighs,
                 seed=seed,
-            )
+            ),
         )
 
     # The classifier/reconstruction groups compare generated niches to paired real niches. A
@@ -215,13 +221,13 @@ def evaluate(
                     spatial=classifier_spatial,
                     n_neighbors=classifier_n_neighbors,
                     n_classes=target.n_classes,
-                )
+                ),
             )
         else:
             skipped.append(
                 "concordance (needs `classifier` and paired real niches — supply a "
                 "`GeneratedNiches` with `gt_x/gt_pos`, or a flat slide with coords so they can be "
-                "auto-built)"
+                "auto-built)",
             )
 
     if "ct_gap" in groups:
@@ -241,7 +247,7 @@ def evaluate(
                     prefix=prefix,
                     spatial=classifier_spatial,
                     n_neighbors=classifier_n_neighbors,
-                )
+                ),
             )
             # Optionally replace the (model-dependent, paired) acc_real with a fixed, seeded sample of
             # real target niches so acc_real is one constant across models — only acc_gen then varies.
@@ -263,12 +269,12 @@ def evaluate(
                 out[f"{p}ct/acc_gap"] = abs(acc_real - out[f"{p}ct/acc_gen"])
                 notes.append(
                     f"ct/acc_real from a fixed seeded sample of {ct_real_n} real target centroids "
-                    "(model-independent), not the generated-centroid pairing"
+                    "(model-independent), not the generated-centroid pairing",
                 )
         else:
             skipped.append(
                 "ct_gap (needs `classifier`, paired niches `gt_x/gt_pos` and true centroid labels "
-                "`gt_ct` — for a flat slide, pass a target with `ct_key` so labels are available)"
+                "`gt_ct` — for a flat slide, pass a target with `ct_key` so labels are available)",
             )
 
     if "recon" in groups:
@@ -282,7 +288,7 @@ def evaluate(
                     regressor,
                     prefix=prefix,
                     n_neighbors=classifier_n_neighbors,
-                )
+                ),
             )
             # Optionally replace the (model-dependent, paired) mse_real with a fixed, seeded sample of
             # real target niches so mse_real is one constant across models — only mse_gen then varies.
@@ -300,12 +306,12 @@ def evaluate(
                 out[f"{p}recon/mse_gap"] = abs(out[f"{p}recon/mse_gen"] - mse_real)
                 notes.append(
                     f"recon/mse_real from a fixed seeded sample of {recon_real_n} real target "
-                    "centroids (model-independent), not the generated-centroid pairing"
+                    "centroids (model-independent), not the generated-centroid pairing",
                 )
         else:
             skipped.append(
                 "recon (needs `regressor` and paired real niches — supply a `GeneratedNiches` with "
-                "`gt_x/gt_pos`, or a flat slide with coords so they can be auto-built)"
+                "`gt_x/gt_pos`, or a flat slide with coords so they can be auto-built)",
             )
 
     out["_skipped"] = skipped
@@ -332,7 +338,8 @@ def evaluate_files(
     apply_lognorm: bool = True,
     **evaluate_kwargs,
 ) -> dict:
-    """Evaluate generated cells against a target slide straight from files — the one-call front door.
+    """Evaluate generated cells against a target slide straight from files — the
+    one-call front door.
 
     The single entry point: it loads both sides, reconciles them into one space, and runs
     :func:`evaluate`. The CLI (``python -m paired_slides_eval.evaluate``) is a thin wrapper over this.
@@ -368,16 +375,19 @@ def evaluate_files(
 
     Returns the flat ``{prefix/group/metric: value}`` dict (plus ``_skipped`` / ``_notes`` and the
     private ``_target_shape`` / ``_generated_shape`` used by the CLI to print a header).
+
     """
     notes: list[str] = []
     if isinstance(target, str) and target.endswith(".pkl"):
         target_slide = TargetSlide.from_dataclass(
-            target, timepoint=timepoint, apply_lognorm=apply_lognorm
+            target,
+            timepoint=timepoint,
+            apply_lognorm=apply_lognorm,
         )
     else:
         raise ValueError(
             "target loaded from AnnData with a per-target PCA — NOT cross-model comparable; pass a "
-            "shared preprocess_pair .pkl as the target to compare models."
+            "shared preprocess_pair .pkl as the target to compare models.",
         )
 
     gen = _load_generated(generated)

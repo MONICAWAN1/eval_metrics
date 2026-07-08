@@ -1,4 +1,4 @@
-"""paired-slides-eval — evaluation metrics for spatial single-cell generation.
+"""Paired-slides-eval — evaluation metrics for spatial single-cell generation.
 
 A model-agnostic evaluation library. It scores a set of generated cells against a real target slide
 and reports the full metric suite. Evaluation is independent of generation; an optional
@@ -32,6 +32,7 @@ Optional generation. Models with an adapter under :mod:`paired_slides_eval.adapt
 configuration via :mod:`paired_slides_eval.generate` and :mod:`paired_slides_eval.pipeline`
 (``run_pipeline``); these require the ``[pipeline]`` extra. The bundled NicheFlow adapter
 (``NicheFlowGenerator``) is one such adapter.
+
 """
 
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide, TargetSlide

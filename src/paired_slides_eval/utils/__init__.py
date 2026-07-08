@@ -2,6 +2,7 @@
 
 Explicit imports only — no ``import *`` — so importing the classifier does not transitively
 drag in the metric kernels (and vice versa).
+
 """
 
 from paired_slides_eval.utils.exceptions import print_exceptions

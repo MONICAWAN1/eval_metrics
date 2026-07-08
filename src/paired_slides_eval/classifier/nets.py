@@ -12,11 +12,14 @@ class CTClassifierNet(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, output_dim)
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim),
         )
 
     def forward(
-        self, x: Float[Tensor, "... {self.input_dim}"]
+        self,
+        x: Float[Tensor, "... {self.input_dim}"],
     ) -> Float[Tensor, "... {self.output_dim}"]:
         return self.net(x)
 
@@ -30,7 +33,7 @@ class CTClassifierNet(nn.Module):
 
 class MAB(nn.Module):
     def __init__(self, dim_Q, dim_K, dim_V, num_heads, ln=False):
-        super(MAB, self).__init__()
+        super().__init__()
         self.dim_V = dim_V
         self.num_heads = num_heads
         self.fc_q = nn.Linear(dim_Q, dim_V)
@@ -60,7 +63,7 @@ class MAB(nn.Module):
 
 class SAB(nn.Module):
     def __init__(self, dim_in, dim_out, num_heads, ln=False):
-        super(SAB, self).__init__()
+        super().__init__()
         self.mab = MAB(dim_in, dim_in, dim_out, num_heads, ln=ln)
 
     def forward(self, X):
@@ -69,7 +72,7 @@ class SAB(nn.Module):
 
 class PMA(nn.Module):
     def __init__(self, dim, num_heads, num_seeds, ln=False):
-        super(PMA, self).__init__()
+        super().__init__()
         self.S = nn.Parameter(torch.Tensor(1, num_seeds, dim))
         nn.init.xavier_uniform_(self.S)
         self.mab = MAB(dim, dim, dim, num_heads, ln=ln)
@@ -97,6 +100,7 @@ class SpatialCTClassifierBase(nn.Module):
     Subclasses keep ``input_dim``/``output_dim`` and the ``"X"`` batch key, so the
     :class:`~paired_slides_eval.classifier.task.CellTypeClassification` task and the eval metrics
     (which read ``net.output_dim`` and call ``net(batch["X"])``) work unchanged across variants.
+
     """
 
     def __init__(self, input_dim: int, output_dim: int, mask_centroid: bool = True) -> None:
@@ -125,6 +129,7 @@ class SpatialCTClassifierNet(SpatialCTClassifierBase):
     cell-type logits and the batch key is ``"X"``, so the
     :class:`~paired_slides_eval.classifier.task.CellTypeClassification` task and the eval metrics work
     unchanged.
+
     """
 
     def __init__(
@@ -140,14 +145,14 @@ class SpatialCTClassifierNet(SpatialCTClassifierBase):
         super().__init__(input_dim, output_dim, mask_centroid)
         if hidden_dim % num_heads != 0:
             raise ValueError(
-                f"hidden_dim ({hidden_dim}) must be divisible by num_heads ({num_heads})."
+                f"hidden_dim ({hidden_dim}) must be divisible by num_heads ({num_heads}).",
             )
 
         # Shared per-point embedding of each gene-expression row (coordinates are not features).
         self.point_proj = nn.Linear(input_dim, hidden_dim)
         # Let the neighbours interact (captures local niche structure).
         self.encoder = nn.Sequential(
-            *[SAB(hidden_dim, hidden_dim, num_heads, ln=ln) for _ in range(num_sabs)]
+            *[SAB(hidden_dim, hidden_dim, num_heads, ln=ln) for _ in range(num_sabs)],
         )
 
         if mask_centroid:
@@ -161,11 +166,14 @@ class SpatialCTClassifierNet(SpatialCTClassifierBase):
             dec_in = 2 * hidden_dim
 
         self.dec = nn.Sequential(
-            nn.Linear(dec_in, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, output_dim)
+            nn.Linear(dec_in, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim),
         )
 
     def forward(
-        self, x: Float[Tensor, "batch n_points {self.input_dim}"]
+        self,
+        x: Float[Tensor, "batch n_points {self.input_dim}"],
     ) -> Float[Tensor, "batch {self.output_dim}"]:
         h = self.point_proj(x)  # (batch, n_points, hidden_dim)
 

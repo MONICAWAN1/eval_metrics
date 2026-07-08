@@ -38,7 +38,9 @@ class H5ADCTDataModule(LightningDataModule):
             self.dataset = H5ADCTDataset(self.data_fp)
         else:
             self.dataset = SpatialH5ADCTDataset(
-                self.data_fp, n_neighbors=self.n_neighbors, target=self.target
+                self.data_fp,
+                n_neighbors=self.n_neighbors,
+                target=self.target,
             )
 
     def setup(self, stage: str) -> None:

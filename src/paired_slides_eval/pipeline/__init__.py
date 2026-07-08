@@ -7,6 +7,7 @@ bundled NicheFlow implementation lives separately in
 
 To evaluate cells you generated elsewhere, skip this and use
 :func:`paired_slides_eval.evaluate.evaluate` directly.
+
 """
 
 from paired_slides_eval.pipeline.io import write_generated

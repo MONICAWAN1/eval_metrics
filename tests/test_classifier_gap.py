@@ -1,4 +1,5 @@
-"""Test the classifier accuracy-gap metric with a tiny torch classifier (skips without torch)."""
+"""Test the classifier accuracy-gap metric with a tiny torch classifier (skips
+without torch)."""
 
 import pytest
 
@@ -31,11 +32,18 @@ def test_accuracy_gap_keys_and_bounds(rng):
     clf.n_neighbors = n  # so _resolve_n_neighbors doesn't warn/fallback
 
     out = classifier_accuracy_gap(
-        gen_x, gen_pos, gt_x, gt_pos, gt_ct, clf, prefix="test", spatial=True
+        gen_x,
+        gen_pos,
+        gt_x,
+        gt_pos,
+        gt_ct,
+        clf,
+        prefix="test",
+        spatial=True,
     )
     assert set(out) == {"test/ct/acc_real", "test/ct/acc_gen", "test/ct/acc_gap"}
     assert out["test/ct/acc_gap"] == pytest.approx(
-        abs(out["test/ct/acc_real"] - out["test/ct/acc_gen"])
+        abs(out["test/ct/acc_real"] - out["test/ct/acc_gen"]),
     )
     for v in out.values():
         assert 0.0 <= v <= 1.0

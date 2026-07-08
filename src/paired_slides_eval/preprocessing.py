@@ -17,16 +17,31 @@ from paired_slides_eval.data.shared_pca import (
 )
 
 
-def fit_basis(source, target, *, n_pcs: int = 50, cell_type_column: str = "class", **kwargs) -> Basis:
-    """Fit the shared :class:`~paired_slides_eval.data.shared_pca.Basis` on a source+target pair.
+def fit_basis(
+    source,
+    target,
+    *,
+    n_pcs: int = 50,
+    cell_type_column: str = "class",
+    **kwargs,
+) -> Basis:
+    """Fit the shared :class:`~paired_slides_eval.data.shared_pca.Basis` on a
+    source+target pair.
 
     Runs the shared-PCA + coordinate fit and returns just the reusable basis. (The full pair
     dataclass — with the niche scaffolding evaluation also needs — comes from ``preprocess_pair``;
     this wraps it so ``fit`` and ``replay`` share one implementation.) Needs the ``[pipeline]`` extra.
+
     """
     from paired_slides_eval.adapters.nicheflow.preprocess import preprocess_pair
 
-    ds, _ = preprocess_pair(source, target, n_pcs=n_pcs, cell_type_column=cell_type_column, **kwargs)
+    ds, _ = preprocess_pair(
+        source,
+        target,
+        n_pcs=n_pcs,
+        cell_type_column=cell_type_column,
+        **kwargs,
+    )
     return Basis.from_dataclass(ds)
 
 

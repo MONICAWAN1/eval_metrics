@@ -42,8 +42,10 @@ def test_project_none_is_noop(rng):
 def test_niches_project_detects_and_keeps_gt(pca, rng):
     # already-PCA niches (incl. gt_x) -> all passed through unchanged
     gn = GeneratedNiches(
-        x=rng.random((4, 6, N_PCS)), pos=rng.random((4, 6, 2)),
-        gt_x=rng.random((4, 6, N_PCS)), gt_pos=rng.random((4, 6, 2)),
+        x=rng.random((4, 6, N_PCS)),
+        pos=rng.random((4, 6, 2)),
+        gt_x=rng.random((4, 6, N_PCS)),
+        gt_pos=rng.random((4, 6, 2)),
     )
     out = gn.project(pca)
     assert np.array_equal(out.x, gn.x) and np.array_equal(out.gt_x, gn.gt_x)
@@ -54,24 +56,45 @@ def test_niches_project_detects_and_keeps_gt(pca, rng):
 
 def test_from_generated_arrays_prebuilt_target_already_pca(pca, rng):
     # target already in PCA space (pca=None) + already-PCA generated -> no projection
-    target = TargetSlide(x=rng.random((50, N_PCS)), pos=rng.random((50, 2)),
-                         ct=rng.integers(0, 3, 50), n_classes=3, pca=None)
+    target = TargetSlide(
+        x=rng.random((50, N_PCS)),
+        pos=rng.random((50, 2)),
+        ct=rng.integers(0, 3, 50),
+        n_classes=3,
+        pca=None,
+    )
     out = from_generated_arrays(rng.random((40, N_PCS)), rng.random((40, 2)), target)
     assert out.target is target
     assert isinstance(out.generated, GeneratedSlide) and out.generated.x.shape == (40, N_PCS)
 
 
 def test_from_generated_arrays_gene_space_projected(pca, rng):
-    target = TargetSlide(x=rng.random((50, N_PCS)), pos=rng.random((50, 2)),
-                         ct=None, n_classes=None, pca=pca)
+    target = TargetSlide(
+        x=rng.random((50, N_PCS)),
+        pos=rng.random((50, 2)),
+        ct=None,
+        n_classes=None,
+        pca=pca,
+    )
     out = from_generated_arrays(rng.random((40, N_GENES)), rng.random((40, 2)), target)
-    assert out.generated.x.shape == (40, N_PCS)  # gene-space arrays projected through the target PCA
+    assert out.generated.x.shape == (
+        40,
+        N_PCS,
+    )  # gene-space arrays projected through the target PCA
 
 
 def test_from_generated_arrays_niche_shaped(rng):
-    target = TargetSlide(x=rng.random((50, N_PCS)), pos=rng.random((50, 2)),
-                         ct=rng.integers(0, 3, 50), n_classes=3, pca=None)
+    target = TargetSlide(
+        x=rng.random((50, N_PCS)),
+        pos=rng.random((50, 2)),
+        ct=rng.integers(0, 3, 50),
+        n_classes=3,
+        pca=None,
+    )
     out = from_generated_arrays(
-        rng.random((4, 6, N_PCS)), rng.random((4, 6, 2)), target, gt_ct=np.arange(4)
+        rng.random((4, 6, N_PCS)),
+        rng.random((4, 6, 2)),
+        target,
+        gt_ct=np.arange(4),
     )
     assert isinstance(out.generated, GeneratedNiches) and out.generated.x.shape == (4, 6, N_PCS)
