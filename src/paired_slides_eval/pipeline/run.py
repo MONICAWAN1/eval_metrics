@@ -218,7 +218,7 @@ def generate_cells(source, target, checkpoint, *, generator, out=None, **generat
 def _resolve_classifier_arg(classifier, target: TargetSlide):
     """Accept a ready classifier module as-is, or load one from a ``.ckpt`` path."""
     if isinstance(classifier, str):
-        from paired_slides_eval.evaluate import build_spatial_classifier
+        from paired_slides_eval.probes import build_spatial_classifier
 
         return build_spatial_classifier(classifier, target.x.shape[1], target.n_classes)
     return classifier

@@ -7,7 +7,7 @@ import pytest
 
 from paired_slides_eval import GeneratedNiches, GeneratedSlide, TargetSlide
 from paired_slides_eval.data.dataclass import H5ADDatasetDataclass
-from paired_slides_eval.evaluate import _load_generated
+from paired_slides_eval.loaders import _load_generated
 
 
 @pytest.fixture

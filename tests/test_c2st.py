@@ -29,7 +29,6 @@ def test_c2st_metrics_keys(real_slide, generated_niches):
     assert set(out) == {
         "test/c2st/acc",
         "test/c2st/auc",
-        "test/c2st/pos_acc",
         "test/c2st/gene_acc",
         "test/c2st/gene_auc",
     }

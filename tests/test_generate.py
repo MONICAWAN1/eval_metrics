@@ -6,7 +6,7 @@ import pytest
 from paired_slides_eval import generate_cells, write_generated
 from paired_slides_eval.adapters.base import BaseGenerator
 from paired_slides_eval.contract import GeneratedNiches, GeneratedSlide
-from paired_slides_eval.evaluate import _load_generated
+from paired_slides_eval.loaders import _load_generated
 from paired_slides_eval.pipeline import run_pipeline
 from paired_slides_eval.pipeline.run import GenerationOutput
 
@@ -107,5 +107,5 @@ def test_run_pipeline_accepts_generator_instance(real_slide):
                                  pos=rng.uniform(0, 10, size=(40, 2)))
             return GenerationOutput(target=tgt, generated=gen)
 
-    res = run_pipeline("s", "t", "ckpt", generator=_G(), groups=("psd", "spd"))
-    assert "test/psd/mean" in res.metrics
+    res = run_pipeline("s", "t", "ckpt", generator=_G(), groups=("regression",))
+    assert any("regression" in item for item in res.metrics["_skipped"])

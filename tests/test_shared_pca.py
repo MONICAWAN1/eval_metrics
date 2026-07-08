@@ -140,7 +140,7 @@ def test_coord_standardizer_from_dataclass():
 def test_target_from_dataclass_shared_pca_projects_and_standardizes():
     """End-to-end (numpy): a shared-PCA target projects gene-space cells + standardises their coords."""
     from paired_slides_eval.contract import GeneratedSlide, TargetSlide
-    from paired_slides_eval.evaluate import _standardize_generated_coords
+    from paired_slides_eval.reconcile import _standardize_generated_coords
 
     rng = np.random.default_rng(6)
     n_cells, n_genes, n_pcs = 25, 6, 3
@@ -184,7 +184,7 @@ def test_target_from_dataclass_shared_pca_projects_and_standardizes():
 def test_auto_coord_detection_and_reconcile():
     """coords='auto' standardises raw generated coords and passes standardised ones through."""
     from paired_slides_eval.contract import GeneratedSlide, TargetSlide
-    from paired_slides_eval.evaluate import _detect_coord_space, _reconcile_generated
+    from paired_slides_eval.reconcile import _detect_coord_space, _reconcile_generated
 
     ct = CoordStandardizer(mean=np.array([100.0, 200.0]), std=np.array([10.0, 20.0]))
     rng = np.random.default_rng(0)

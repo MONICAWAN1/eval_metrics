@@ -14,16 +14,20 @@ per-project `.venv` and lock file):
 
 ```bash
 uv sync                          # the metrics — all you need to evaluate
+uv sync --group dev              # development tools: tests, formatters, pre-commit
 ```
 
 The package is organized as:
 
 - **`evaluate` / `contract`** — the headline API (`evaluate_files`, `evaluate`) and the
-  `TargetSlide` / `GeneratedSlide` / `GeneratedNiches` data contract.
+  `TargetSlide` / `GeneratedSlide` / `GeneratedNiches` data contract. The `evaluate` orchestrator is
+  supported by focused modules: `loaders` (read generated files), `reconcile` (map coordinates into
+  the target frame), `probes` (load the classifier/regressor + build paired niches), and `cli` (the
+  command line; `python -m paired_slides_eval.evaluate` still works).
 - **`metrics/`** — the metric kernels (distances, distribution, c2st, morans, concordance,
   classifier_gap); Moran's I and classifier niches are assembled locally.
-- **`data/`** — raw `.h5ad` → arrays, plus the shared-PCA helper that keeps target and generated in
-  one feature space.
+- **`data/`** — raw `.h5ad` → arrays, plus the shared-space `Basis` (one PCA + coordinate frame) that
+  keeps target and generated in one feature space.
 - **`adapters/`** — generation adapters (NicheFlow, OT-CFM) behind the `BaseGenerator` contract
   *(extra: `pipeline`)*.
 - **`classifier/`** — cell-type-classifier training for the `ct/*` metrics *(extra: `classifier`)*.
@@ -43,6 +47,33 @@ uv sync --extra wandb            # + Weights & Biases logging for classifier tra
 Extras compose (`uv sync --extra pipeline --extra nicheflow`). Running the bundled NicheFlow adapter
 additionally needs the `nicheflow` package, which is not on PyPI:
 `uv pip install -e ../nicheflow_mba`.
+
+## Development Workflow
+
+For development, use `uv` from the repository root:
+
+```bash
+uv sync --group dev
+```
+
+Install the formatting/standardization hooks once per clone:
+
+```bash
+uv run --group dev pre-commit install
+```
+
+Run the same checks manually before pushing:
+
+```bash
+uv run --group dev pre-commit run --all-files
+```
+
+The pre-commit workflow standardizes YAML, Python imports/formatting, docstrings, Markdown, trailing
+commas, trailing whitespace, and final newlines. Focused tests use the same environment:
+
+```bash
+uv run --group dev pytest
+```
 
 ## Quickstart
 
@@ -67,34 +98,30 @@ uv run python -m paired_slides_eval.evaluate \
   --target target.h5ad --generated generated.h5ad --ct_key class --n_pcs 50 --out results.csv
 ```
 
-Evaluate all applicable metrics (default), or a selected subset with `--groups`:
+### As a results table
 
-```bash
-# ALL applicable metrics — geometry + distribution + C2ST + Moran need no classifier:
-uv run python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
-  --n_pcs 50 --out results.csv
+`paired_slides_eval.me` (the metrics namespace) wraps the same call and returns a tidy
+`pandas.DataFrame` — the numbers are identical, just shaped like a benchmarking table. Concatenate
+several models into one comparison table with `compare`:
 
-# a SELECTED subset only:
-uv run python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
-  --groups c2st moran
+```python
+import paired_slides_eval as pse
 
-# add the classifier groups (concordance + accuracy gap) — needs a TRAINED classifier (see Metrics):
-uv run python -m paired_slides_eval.evaluate --target TARGET.h5ad --generated generated.h5ad \
-  --ct_key class --n_pcs 50 --classifier Classifier_Spatial.ckpt --out results.csv
+# one model -> metrics as rows, one value column
+df = pse.me.metrics_files("target.h5ad", "otcfm.h5ad", name="otcfm", ct_key="class", n_pcs=50)
+
+# several models -> a wide metrics x models table
+table = pse.me.compare(
+    {"otcfm": ("shared_pair.pkl", "otcfm.h5ad"),
+     "nicheflow": ("shared_pair.pkl", "nicheflow.h5ad")},
+    from_files=True, ct_key="class",
+)
 ```
 
-Groups whose inputs are missing are skipped automatically (a flat slide → skips regression; no
-`--classifier` → skips the `ct/*` groups) and reported on a `skipped:` line; anything reconstructed
-on the fly (e.g. classifier niches auto-built from a flat slide) is reported on a `notes:` line.
-
-| Flag | Default | Purpose |
-|---|---|---|
-| `--classifier` | none | trained classifier `.ckpt`; enables the `ct/*` groups. `n_neighbors` read from the checkpoint |
-| `--regressor` | none | trained expression-regressor `.ckpt`; enables the `recon` group |
-| `--groups` | all | subset, e.g. `--groups c2st moran` |
-| `--n_pcs` | none | fit a PCA on the target to N PCs and project the generated cells into it |
-| `--expr_key` / `--spatial_key` / `--ct_key` | `X`/`spatial`/none | where expression/coords/labels live |
-| `--seed` | `0` | |
+`pse.me` is the metrics namespace and `pse.pp` the preprocessing namespace. The shared space is
+defined once as `pp.Basis` (`normalize → log1p → PCA → whiten` for expression, `(pos − mean) / std`
+for coordinates): `pp.fit_basis(source, target)` fits it, `basis.apply(genes, coords)` places any
+slide into it, and `basis.to_fm_npz(path)` exports it so a model can be trained in the same space.
 
 ## Inputs
 
@@ -145,15 +172,14 @@ classifier — this is the default suite any model can use. The **classifier** g
 **advanced**: they need a trained cell-type classifier (see below). Only regression needs
 cell-for-cell matched ground truth and is therefore niche-only. Metrics split conceptually along two
 axes — **expression / distribution fidelity** (the `x` variants: `mmd2/x`, `ot_w*/x`, gene-C2ST) and
-**spatial & joint fidelity** (Moran's I, joint C2ST, the `pos` variants, geometry, and the `ct/*`
+**spatial & joint fidelity** (Moran's I, joint C2ST, the `pos` distribution variants, and the `ct/*`
 concordance groups).
 
 | Group | Keys | Shape | Needs |
 |---|---|---|---|
-| Point/shape distances | `psd/{mean,max}`, `spd/{mean,max}` | flat or niche | — |
 | Distribution | `mmd2/{x,pos}`, `ot_w1/{x,pos}`, `ot_w2/{x,pos}` | flat or niche | `torch`, `pot` |
-| C2ST (label-free) | `c2st/{acc,auc,gene_acc,gene_auc,pos_acc}` | flat or niche | `sklearn` |
-| C2ST nearest-neighbor (label-free) | `c2st/{nn,nn_std,nn_flip,nn_real_ref}` | flat or niche | `scipy` |
+| C2ST (label-free) | `c2st/{acc,auc,gene_acc,gene_auc}` | flat or niche | `sklearn` |
+| C2ST nearest-neighbor (label-free) | `c2st/{nn,nn_std,nn_real_ref}` | flat or niche | `scipy` |
 | Moran's I (label-free) | `moran/{mae,corr,real_mean,gen_mean}` | flat or niche | `squidpy` — over **all** generated cells vs the full real slide |
 | Pointwise regression | `x/{mse,mae}`, `pos/{mse,mae}` | niche only | matched `gt_*` |
 | Expression reconstruction | `recon/{mse_gen,mse_real,mse_gap}` | flat or niche | trained regressor (`--regressor`) |
@@ -269,11 +295,12 @@ The metric kernels and bundled adapters build on:
 
 ## Development
 
-- **Environment.** `uv sync --extra classifier --extra pipeline` (or the subset you need); each
+- **Environment.** `uv sync --group dev --extra classifier --extra pipeline` (or the subset you need); each
   subproject keeps its own `.venv` and lock file — don't `pip install` into a base environment.
-- **Lint & format.** `uv run ruff check .` and `uv run ruff format .` (line length 100).
-- **Tests.** `uv run pytest` — synthetic data only, no real data needed. The suite skips cleanly when
-  optional heavy deps (`torch`, `squidpy`, `lightning`, …) are absent; keep it that way.
+- **Lint & format.** `uv run --group dev pre-commit run --all-files`; for a quick Python-only check,
+  `uv run --group dev ruff check .`.
+- **Tests.** `uv run --group dev pytest` — synthetic data only, no real data needed. The suite skips
+  cleanly when optional heavy deps (`torch`, `squidpy`, `lightning`, …) are absent; keep it that way.
 
 ## Layout
 

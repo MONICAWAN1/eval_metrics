@@ -3,8 +3,7 @@
 Train a binary classifier to tell sample ``X`` (label 0) from ``Y`` (label 1); the held-out
 accuracy/AUC is the statistic. ~0.5 == indistinguishable (good); ~1.0 == trivially separable
 (bad). ``c2st`` / ``c2st_significance`` are the framework-free kernels (follow Lopez-Paz &
-Oquab 2017); ``c2st_metrics`` is the wrapper computing the per-cell joint, pos-only and
-expression-only views.
+Oquab 2017); ``c2st_metrics`` is the wrapper computing the per-cell joint and expression-only views.
 """
 
 from __future__ import annotations
@@ -107,12 +106,11 @@ def c2st_metrics(
     n_perm: int = 0,
     seed: int = 0,
 ) -> dict[str, float]:
-    """Label-free C2ST across three views: per-cell joint ``[x|pos]``, pos-only, and expr-only.
+    """Label-free C2ST across two views: per-cell joint ``[x|pos]`` and expr-only.
 
     The per-cell joint test detects a wrong expression<->position coupling the separate
-    MMD/EMD marginals cannot; the pos-only and expression-only (``gene_*``) tests are diagnostics
-    on the respective marginals — a high ``gene_acc`` with a low ``pos_acc`` (or vice versa) tells
-    which marginal drives a separable joint.
+    MMD/EMD marginals cannot; the expression-only (``gene_*``) test is a diagnostic for whether
+    expression alone drives a separable joint.
     """
     p = f"{prefix}/" if prefix else ""
     rng = np.random.default_rng(seed)
@@ -122,13 +120,7 @@ def c2st_metrics(
     gen_joint = subsample(np.concatenate([gen_x, gen_pos], axis=1), max_n, rng)
     acc, auc = c2st(real_joint, gen_joint, seed=seed, n_folds=n_folds)
 
-    # Diagnostic: per-cell pos-only.
-    pos_acc, _ = c2st(
-        subsample(real_pos, max_n, rng), subsample(gen_pos, max_n, rng), seed=seed, n_folds=n_folds
-    )
-
-    # Diagnostic: per-cell expression-only (the gene marginal). Drawn last so the joint/pos draws
-    # above keep the same RNG state as before this view was added.
+    # Diagnostic: per-cell expression-only (the gene marginal).
     gene_acc, gene_auc = c2st(
         subsample(real_x, max_n, rng), subsample(gen_x, max_n, rng), seed=seed, n_folds=n_folds
     )
@@ -136,7 +128,6 @@ def c2st_metrics(
     out = {
         f"{p}c2st/acc": acc,
         f"{p}c2st/auc": auc,
-        f"{p}c2st/pos_acc": pos_acc,
         f"{p}c2st/gene_acc": gene_acc,
         f"{p}c2st/gene_auc": gene_auc,
     }

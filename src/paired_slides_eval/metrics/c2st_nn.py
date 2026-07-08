@@ -91,9 +91,9 @@ def c2st_nn_metrics(
     """Spatially-pooled nearest-neighbour two-sample test (the forgiving C2ST).
 
     Reports ``c2st/nn`` (mean per-niche real-fraction; ~0.5 indistinguishable, ->0 separable, ->1
-    memorisation), ``c2st/nn_std`` (its spread, to expose a bimodal split-slide), ``c2st/nn_flip``
-    (the binary majority-vote rate, secondary) and ``c2st/nn_real_ref`` (the same statistic on real
-    centroids, a self-calibration that should also be ~0.5 for a balanced pool).
+    memorisation), ``c2st/nn_std`` (its spread, to expose a bimodal split-slide), and
+    ``c2st/nn_real_ref`` (the same statistic on real centroids, a self-calibration that should also
+    be ~0.5 for a balanced pool).
     """
     p = f"{prefix}/" if prefix else ""
     p_gen, p_real = c2st_nn(
@@ -102,6 +102,5 @@ def c2st_nn_metrics(
     return {
         f"{p}c2st/nn": float(p_gen.mean()),
         f"{p}c2st/nn_std": float(p_gen.std()),
-        f"{p}c2st/nn_flip": float((p_gen > 0.5).mean()),
         f"{p}c2st/nn_real_ref": float(p_real.mean()),
     }

@@ -1,21 +1,4 @@
-import numpy as np
-
-from paired_slides_eval.metrics.distances import point_to_shape, regression_metrics, shape_to_point
-
-
-def test_psd_zero_when_generated_equals_real(rng):
-    pos = rng.uniform(0, 10, size=(200, 2))
-    out = point_to_shape(pos, pos, prefix="test")
-    assert out["test/psd/mean"] == 0.0
-    assert out["test/psd/max"] == 0.0
-
-
-def test_spd_keys_and_positive(rng):
-    real = rng.uniform(0, 10, size=(200, 2))
-    gen = rng.uniform(0, 10, size=(150, 2))
-    out = shape_to_point(gen, real, prefix="test")
-    assert set(out) == {"test/spd/mean", "test/spd/max"}
-    assert out["test/spd/mean"] >= 0.0
+from paired_slides_eval.metrics.distances import regression_metrics
 
 
 def test_regression_zero_on_identical(rng):

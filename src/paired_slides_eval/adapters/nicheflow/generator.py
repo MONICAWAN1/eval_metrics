@@ -169,7 +169,7 @@ def _resolve_classifier(
 ):
     """Load a classifier checkpoint, or train one on the projected classifier slide, or ``None``."""
     if classifier_ckpt is not None:
-        from paired_slides_eval.evaluate import build_spatial_classifier
+        from paired_slides_eval.probes import build_spatial_classifier
 
         return build_spatial_classifier(classifier_ckpt, n_pcs, n_classes)
 

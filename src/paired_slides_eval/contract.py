@@ -8,7 +8,7 @@ coordinates); build the dataclasses with :meth:`TargetSlide.from_anndata` /
 Two shapes for the generated cells:
 
 * :class:`GeneratedSlide` — a **flat** slide, ``x (N, D)`` + ``pos (N, D)``. Use this for
-  whole-slide generative models. The label-free metrics (psd, spd, distribution, c2st, moran)
+  whole-slide generative models. The label-free metrics (distribution, c2st, moran)
   run on it directly; the classifier metrics (concordance, ct_gap) are still computed by
   reconstructing niches from geometry (see :func:`paired_slides_eval.evaluate.evaluate`); only
   regression — which needs cell-for-cell matched ground truth — stays skipped.
@@ -169,10 +169,7 @@ class TargetSlide:
             apply_lognorm: forwarded to the basis — ``False`` if gene-space cells are already log-normed.
         """
         from paired_slides_eval.data.dataclass import slide_expression_matrix
-        from paired_slides_eval.data.shared_pca import (
-            coord_standardizer_from_dataclass,
-            shared_pca_from_dataclass,
-        )
+        from paired_slides_eval.data.shared_pca import Basis
 
         if hasattr(ds_or_path, "X_pca"):
             ds = ds_or_path
@@ -203,8 +200,8 @@ class TargetSlide:
         pca = coord_transform = None
         if shared_pca:  # True or "auto"
             try:
-                pca = shared_pca_from_dataclass(ds, apply_lognorm=apply_lognorm)
-                coord_transform = coord_standardizer_from_dataclass(ds, t)
+                basis = Basis.from_dataclass(ds, timepoint=t, apply_lognorm=apply_lognorm)
+                pca, coord_transform = basis.expression, basis.coords
             except ValueError:
                 if shared_pca != "auto":
                     raise  # explicit shared_pca=True on a pickle without the recipe -> surface it
@@ -375,7 +372,7 @@ class GeneratedSlide:
     """Generated cells as a **flat** slide: ``x (N, D)`` + ``pos (N, coord)``.
 
     For whole-slide generative models that emit a tissue directly, with no niche/microenvironment
-    structure. The label-free metrics — ``psd``, ``spd``, ``distribution``, ``c2st``, ``moran`` —
+    structure. The label-free metrics — ``distribution``, ``c2st``, ``moran`` —
     consume the flat cloud directly. The classifier metrics (``concordance``, ``ct_gap``) are
     computed by reconstructing microenvironments from geometry. When the target carries fixed
     evaluation centroids, those target centroids are OT-assigned to generated cells first; otherwise

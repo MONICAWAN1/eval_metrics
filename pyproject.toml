@@ -74,8 +74,18 @@ all = [
 
 [dependency-groups]
 dev = [
+    "add-trailing-comma>=3.2",
+    "black>=25.9",
+    "docformatter>=1.7",
+    "isort>=6.0",
+    "mdformat>=0.7",
+    "mdformat-gfm>=0.4",
     "pytest>=8.0",
+    "pyupgrade>=3.20",
     "ruff>=0.6",
+    "pre-commit>=4.0",
+    "yamllint>=1.37",
+    "yamlfix>=1.18",
     "ipykernel>=6.29",
     "jupyterlab>=4.0",
 ]
@@ -102,6 +112,20 @@ packages = ["src/paired_slides_eval"]
 line-length = 100
 target-version = "py311"
 src = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.docformatter]
+wrap-summaries = 80
+wrap-descriptions = 80
+blank = true
+recursive = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

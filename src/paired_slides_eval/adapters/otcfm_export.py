@@ -22,50 +22,21 @@ Usage::
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 
 
 def export_shared_pca(pair_pkl: str, out_npz: str) -> dict:
-    """Read a preprocessed pair ``.pkl`` and write its shared PCA as an ``fm_mnist`` stats ``.npz``."""
+    """Read a preprocessed pair ``.pkl`` and write its shared basis as an ``fm_mnist`` stats ``.npz``.
+
+    A thin front end over :meth:`~paired_slides_eval.data.shared_pca.Basis.to_fm_npz`, which owns the
+    ``SharedGenePCA``/coord → ``fm_mnist`` mapping so the training file and the eval projection are
+    guaranteed to describe the same basis.
+    """
     from paired_slides_eval.data.dataclass import load_h5ad_dataset_dataclass
-    from paired_slides_eval.data.shared_pca import shared_pca_from_dataclass
+    from paired_slides_eval.data.shared_pca import Basis
 
     ds = load_h5ad_dataset_dataclass(pair_pkl)
-    sp = shared_pca_from_dataclass(ds)  # SharedGenePCA: pcs (G,k), lognorm_mean (G,), xpca_mean/std (k,)
-
-    # Map SharedGenePCA -> fm_mnist load_spatial_pca stats. fm_mnist applies normalize_total+log1p
-    # itself, then does (L - pca_mean) @ pca_components.T, whitened by (.- sc_mean)/sc_scale -- exactly
-    # SharedGenePCA's linear tail, so the two projections are numerically identical.
-    stats = {
-        "space": "pca",
-        "n_pcs": int(np.asarray(sp.pcs).shape[1]),
-        "whiten": True,
-        "pca_components": np.asarray(sp.pcs, dtype=np.float32).T,   # (k, G)
-        "pca_mean": np.asarray(sp.lognorm_mean, dtype=np.float32),  # (G,)
-        "sc_mean": np.asarray(sp.xpca_mean, dtype=np.float32),      # (k,)
-        "sc_scale": np.asarray(sp.xpca_std, dtype=np.float32),      # (k,)
-        "target_sum": np.float32(sp.target_sum),
-        "var_names": np.asarray([str(v) for v in sp.var_names]),
-    }
-
-    # Target slide's coordinate standardiser (per-slide, all cells) — the frame the niche models and
-    # the eval use. OT-CFM standardises its coords with these, so its emitted coords need no eval-side
-    # reconciliation (passthrough), symmetric with the expression basis above.
-    tp = ds.timepoints_ordered[-1]
-    cstats = (ds.stats or {}).get("coords", {}).get(tp)
-    if not cstats or "mean" not in cstats or "std" not in cstats:
-        raise ValueError(
-            f"pair pkl has no standardised coord stats for target {tp!r} "
-            "(build it with standardize_coordinates=True)."
-        )
-    stats["coord_mean"] = np.asarray(cstats["mean"], dtype=np.float32).ravel()
-    stats["coord_std"] = np.asarray(cstats["std"], dtype=np.float32).ravel()
-
-    Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
-    np.savez(out_npz, **stats)
-    return stats
+    return Basis.from_dataclass(ds).to_fm_npz(out_npz)
 
 
 def _main() -> None:

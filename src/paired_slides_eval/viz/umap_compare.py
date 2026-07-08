@@ -41,7 +41,7 @@ def umap_compare(
 
     from paired_slides_eval.contract import TargetSlide
     from paired_slides_eval.data.dataclass import load_h5ad_dataset_dataclass
-    from paired_slides_eval.evaluate import _load_generated
+    from paired_slides_eval.loaders import _load_generated
 
     ds = load_h5ad_dataset_dataclass(pair_pkl)
     ct_names = list(ds.ct_ordered)  # index -> cell-type name (the shared 20-class vocabulary)

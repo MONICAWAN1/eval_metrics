@@ -111,58 +111,6 @@ def preprocess_pair(
     return pre.to_dataclass(), pre
 
 
-def preprocess_classifier_slide_into_pca(*_args, **_kwargs) -> H5ADDatasetDataclass:
-    """RETIRED — raw-gene-PCA classifier-slide prep (commented out below for reference).
-
-    The raw-gene-PCA path produced classifier metrics that are **not comparable** to the NicheFlow
-    models, so it has been retired in favour of the unified flow: build the *one* shared classifier
-    slide with :func:`preprocess_classifier_slide` (NicheFlow recipe) and evaluate every model against
-    the same shared pickle with ``evaluate --shared_pca``. See ``docs/comparability_plan.md``.
-    """
-    raise NotImplementedError(
-        "preprocess_classifier_slide_into_pca is retired (raw-gene-PCA path). Use "
-        "preprocess_classifier_slide + `evaluate --shared_pca` for the unified comparison; see "
-        "docs/comparability_plan.md."
-    )
-
-
-# --- RETIRED implementation (raw-gene-PCA path), preserved for reference -----------------------
-# def preprocess_classifier_slide_into_pca(
-#     classifier_h5ad, pca, var_names, ct_ordered, *,
-#     cell_type_column="class", slide_column="slide",
-#     radius=0.15, dx=0.15, dy=0.2, device="cpu",
-# ) -> H5ADDatasetDataclass:
-#     import anndata as ad
-#     c = ad.read_h5ad(classifier_h5ad)
-#     if not c.var_names.equals(var_names):
-#         c = c[:, var_names].copy()  # match the target's gene panel/order
-#     # Keep only cells whose type is in the target vocabulary (so labels map 1:1 to eval).
-#     vocab = set(ct_ordered)
-#     keep = np.array([str(v) in vocab for v in c.obs[cell_type_column].astype(str)])
-#     if not keep.all():
-#         c = c[keep].copy()
-#     genes = c.X.toarray() if hasattr(c.X, "toarray") else np.asarray(c.X)
-#     n_pcs = pca.components.shape[0]
-#     c.obsm["X_pca"] = np.asarray(pca.transform(genes))
-#     c.varm["PCs"] = np.asarray(pca.components, dtype=np.float64).T  # (genes, n_pcs); unused later
-#     c.obs[slide_column] = "C"
-#     c.obs[slide_column] = c.obs[slide_column].astype("category")
-#     clf_pre = H5ADPreprocessor(
-#         timepoint_column=slide_column, cell_type_column=cell_type_column,
-#         timepoints_ordered=["C"], standardize_coordinates=True,
-#         radius=radius, dx=dx, dy=dy, device=device, external_ct_ordered=list(ct_ordered),
-#         # Identity X_pca stats: feed the raw projection (no whitening), exactly as eval does.
-#         external_x_pca_stats={"mean": np.zeros(n_pcs), "std": np.ones(n_pcs)},
-#     )
-#     clf_pre.preprocess_data(c)
-#     # Eval builds niches from RAW target/generated coordinates, so train on the raw frame too:
-#     # restore raw coords and rebuild the radius-graph neighbours on them.
-#     clf_pre.coords = np.asarray(c.obsm["spatial"], dtype=np.float64).copy()
-#     clf_pre.stats["coords"] = {}
-#     clf_pre._compute_radius_graphs()
-#     return clf_pre.to_dataclass()
-
-
 def preprocess_classifier_slide(
     classifier_h5ad,
     base_preprocessor: H5ADPreprocessor,

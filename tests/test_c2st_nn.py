@@ -2,7 +2,7 @@
 
 from paired_slides_eval.metrics.c2st_nn import c2st_nn_metrics
 
-KEYS = {"test/c2st/nn", "test/c2st/nn_std", "test/c2st/nn_flip", "test/c2st/nn_real_ref"}
+KEYS = {"test/c2st/nn", "test/c2st/nn_std", "test/c2st/nn_real_ref"}
 
 
 def test_c2st_nn_chance_on_identical(rng):

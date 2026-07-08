@@ -43,15 +43,12 @@ def test_generated_slide_project_shares_basis(target_adata, generated_slide_adat
     assert raw.project(None) is raw
 
 
-def test_evaluate_flat_slide_runs_label_free_and_skips_niche(target_adata, generated_slide_adata):
+def test_evaluate_flat_slide_skips_unavailable_niche_metrics(target_adata, generated_slide_adata):
     target = TargetSlide.from_anndata(target_adata, ct_key="class")
     gen = GeneratedSlide.from_anndata(generated_slide_adata)
 
-    res = evaluate(target, gen, groups=("psd", "spd", "regression", "ct_gap"))
+    res = evaluate(target, gen, groups=("regression", "ct_gap"))
 
-    # label-free groups ran on the flat cloud
-    assert any(k.startswith("test/psd") for k in res)
-    assert any(k.startswith("test/spd") for k in res)
     # niche groups skipped (regression needs gt_*; ct_gap needs niches + classifier)
     skipped = res["_skipped"]
     assert any("regression" in s for s in skipped)
@@ -59,7 +56,7 @@ def test_evaluate_flat_slide_runs_label_free_and_skips_niche(target_adata, gener
 
 
 def test_load_generated_autodetects_flat(tmp_path, rng):
-    from paired_slides_eval.evaluate import _load_generated
+    from paired_slides_eval.loaders import _load_generated
 
     # flat .npz (2-D x) -> GeneratedSlide
     npz_path = tmp_path / "flat.npz"

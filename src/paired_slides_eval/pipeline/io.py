@@ -2,7 +2,7 @@
 
 ``write_generated`` writes a :class:`~paired_slides_eval.contract.GeneratedNiches` or
 :class:`~paired_slides_eval.contract.GeneratedSlide` to ``.h5ad`` or ``.npz`` in the same layout the
-evaluator's loader reads (:func:`paired_slides_eval.evaluate._load_generated`), so a generate step
+evaluator's loader reads (:func:`paired_slides_eval.loaders._load_generated`), so a generate step
 and a later evaluate step compose.
 """
 

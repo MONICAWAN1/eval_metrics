@@ -47,4 +47,23 @@ __all__ = [
     "evaluate_files",
     "generate_cells",
     "write_generated",
+    "me",
+    "pp",
 ]
+
+
+def __getattr__(name):
+    """Lazy namespaces: ``me`` (metrics + table wrapper), ``pp`` (preprocessing).
+
+    Kept lazy so ``import paired_slides_eval`` stays lightweight — ``pp`` only pulls scanpy/torch
+    when first accessed, and ``me`` only the metric stack.
+    """
+    if name == "me":
+        import paired_slides_eval.metrics as me
+
+        return me
+    if name == "pp":
+        import paired_slides_eval.preprocessing as pp
+
+        return pp
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

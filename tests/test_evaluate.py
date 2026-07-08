@@ -14,22 +14,10 @@ def _build(real_slide, generated_niches):
     return target, generated
 
 
-def test_evaluate_geometric_groups(real_slide, generated_niches):
-    target, generated = _build(real_slide, generated_niches)
-    out = evaluate(target, generated, groups=("psd", "spd"))
-    assert set(out) - {"_skipped", "_notes"} == {
-        "test/psd/mean",
-        "test/psd/max",
-        "test/spd/mean",
-        "test/spd/max",
-    }
-
-
 def test_evaluate_skips_unavailable_groups(real_slide, generated_niches):
     target, generated = _build(real_slide, generated_niches)
-    out = evaluate(target, generated, groups=("regression", "concordance", "psd"))
-    # regression needs matched GT; concordance needs a classifier -> both skipped, psd runs.
-    assert "test/psd/mean" in out
+    out = evaluate(target, generated, groups=("regression", "concordance"))
+    # regression needs matched GT; concordance needs a classifier -> both skipped.
     assert len(out["_skipped"]) == 2
 
 

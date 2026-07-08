@@ -14,12 +14,12 @@ reprojection (see :func:`paired_slides_eval.contract._pca_aware_transform`).
 The OT-CFM is **unconditional**. By default it is **expression-only** (it generates whitened-PCA
 expression, no coordinates): ``source`` is ignored and generated cells get **placeholder**
 coordinates from the reference slide, so only the expression metrics (``distribution``, ``c2st``)
-are meaningful — the spatial metrics just confirm the absence of structure.
+are meaningful — coordinate-distribution diagnostics are not meaningful in this mode.
 
 A checkpoint trained with fm_mnist's ``--spatial_key`` (the **naive spatial baseline**) instead
 emits ``[expression | coords]`` jointly; selecting ``coord_mode="generate"`` reads off that
 coordinate tail and un-standardizes it to real coordinates, so the spatial metrics
-(``moran``/``psd``/``spd``/``ot_*/pos``) become a genuine read on the baseline's geometry.
+(``moran``/``ot_*/pos``) become a genuine read on the baseline's geometry.
 
 Selected with ``generator=otcfm`` (``configs/generator/otcfm.yaml``). Needs fm_mnist's ``fm`` package
 importable — either ``uv pip install -e ../fm_mnist`` or set ``fm_root`` to the fm_mnist repo path.

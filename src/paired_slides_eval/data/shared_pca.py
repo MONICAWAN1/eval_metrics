@@ -153,3 +153,64 @@ def coord_standardizer_from_dataclass(ds, timepoint: str | None = None) -> Coord
         mean=np.asarray(cstats["mean"], dtype=np.float64).ravel(),
         std=np.asarray(cstats["std"], dtype=np.float64).ravel(),
     )
+
+
+@dataclass
+class Basis:
+    """The shared evaluation space: one expression basis + one coordinate frame.
+
+    Bundles the whitened-PCA expression transform (:class:`SharedGenePCA`) and the per-slide
+    coordinate standardiser (:class:`CoordStandardizer`) into a single object. It is the one source
+    of truth for the recipe ``normalize_total → log1p → PCA → whiten`` (expression) and
+    ``(pos - mean) / std`` (coordinates): the eval-time projection, the OT-CFM training export, and
+    any slide being placed into the space all go through it.
+    """
+
+    expression: SharedGenePCA
+    coords: CoordStandardizer
+
+    @classmethod
+    def from_dataclass(cls, ds, *, timepoint: str | None = None, apply_lognorm: bool = True) -> "Basis":
+        """Reconstruct the basis from a preprocessed pair pickle (the shared PCA + coord stats it stores)."""
+        return cls(
+            expression=shared_pca_from_dataclass(ds, apply_lognorm=apply_lognorm),
+            coords=coord_standardizer_from_dataclass(ds, timepoint),
+        )
+
+    def apply(self, genes=None, coords=None):
+        """Put a slide into the shared space. Returns ``(X_pca, coords_std)``; either side may be ``None``.
+
+        ``genes`` ``(cells, n_genes)`` → whitened ``X_pca``; ``coords`` ``(cells, 2)`` → standardised
+        coordinates. The single call every raw slide (target, classifier, gene-space generated) uses.
+        """
+        x = self.expression.transform(genes) if genes is not None else None
+        c = self.coords.transform(coords) if coords is not None else None
+        return x, c
+
+    def to_fm_npz(self, out_npz: str) -> dict:
+        """Write the basis as an ``fm_mnist`` ``load_spatial_pca`` stats ``.npz`` (to train a model in it).
+
+        ``fm_mnist`` applies ``normalize_total + log1p`` itself, then ``(L - pca_mean) @ pca_components.T``
+        whitened by ``(· - sc_mean) / sc_scale`` — the exact linear tail of :class:`SharedGenePCA`, so a
+        model trained against this file lands in the same space evaluation scores in. The coord
+        standardiser rides along so the model also emits coordinates in the target's frame.
+        """
+        from pathlib import Path
+
+        sp = self.expression
+        stats = {
+            "space": "pca",
+            "n_pcs": int(np.asarray(sp.pcs).shape[1]),
+            "whiten": True,
+            "pca_components": np.asarray(sp.pcs, dtype=np.float32).T,   # (k, G)
+            "pca_mean": np.asarray(sp.lognorm_mean, dtype=np.float32),  # (G,)
+            "sc_mean": np.asarray(sp.xpca_mean, dtype=np.float32),      # (k,)
+            "sc_scale": np.asarray(sp.xpca_std, dtype=np.float32),      # (k,)
+            "target_sum": np.float32(sp.target_sum),
+            "var_names": np.asarray([str(v) for v in sp.var_names]),
+            "coord_mean": np.asarray(self.coords.mean, dtype=np.float32).ravel(),
+            "coord_std": np.asarray(self.coords.std, dtype=np.float32).ravel(),
+        }
+        Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
+        np.savez(out_npz, **stats)
+        return stats

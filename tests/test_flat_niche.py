@@ -159,6 +159,5 @@ def test_evaluate_flat_ct_gap_needs_target_labels(real_slide):
 
 def test_evaluate_regression_stays_skipped_for_flat(real_slide):
     target, generated = _flat_target_and_slide(real_slide)
-    out = evaluate(target, generated, groups=("regression", "psd"))
-    assert "test/psd/mean" in out
+    out = evaluate(target, generated, groups=("regression",))
     assert any("regression" in s for s in out["_skipped"])

@@ -100,7 +100,7 @@ def build_paired_niches_from_flat(
       transport pairing a niche-aware model supplies via ``gt_x``/``gt_pos``.
 
     The generated and real slides must live in the **same coordinate frame** (as they already must
-    for ``psd``/``spd``/``moran``) so the nearest-real match is meaningful.
+    for coordinate-distribution and spatial metrics) so the nearest-real match is meaningful.
 
     Args:
         gen_x / gen_pos: flat generated cells ``(N_gen, n_feat)`` / ``(N_gen, coord)``.
