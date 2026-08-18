@@ -62,6 +62,10 @@ def main() -> None:
         help=f"subset of metric groups to run (default: all -> {', '.join(ALL_GROUPS)})",
     )
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--c2st_max_n", type=int, default=2000)
+    ap.add_argument("--c2st_n_folds", type=int, default=5)
+    ap.add_argument("--mmd_max_n", type=int, default=2000)
+    ap.add_argument("--ot_max_n", type=int, default=4000)
     ap.add_argument(
         "--coords",
         default="auto",
@@ -137,6 +141,10 @@ def main() -> None:
         timepoint=args.timepoint,
         timepoint_key=args.timepoint_key,
         seed=args.seed,
+        c2st_max_n=args.c2st_max_n,
+        c2st_n_folds=args.c2st_n_folds,
+        mmd_max_n=args.mmd_max_n,
+        ot_max_n=args.ot_max_n,
         coords=args.coords,
         apply_lognorm=not args.no_apply_lognorm,
         ct_real_reference=args.ct_real_reference,
